@@ -1146,6 +1146,11 @@ struct HomeView: View {
         }
     }
 
+    private var firstName: String {
+        let trimmed = (userProfile.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.split(separator: " ").first.map(String.init) ?? "User"
+    }
+
     /// Horizontal swipe → previous/next day. Attached only to the top section (calorie hero +
     /// macros), not the food log below the summary, so it never competes with the food rows'
     /// own swipe actions or vertical scrolling there. `.simultaneousGesture` lets the List still
@@ -1416,7 +1421,7 @@ private var dailyStepsTaskKey: String {
                             Text(greetingText)
                                 .font(.system(.subheadline, design: .rounded, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            Text("\(userProfile.displayName) 👋")
+                            Text("\(firstName) 👋")
                                 .font(.system(.title2, design: .rounded, weight: .bold))
                         }
                         Spacer()
@@ -1444,7 +1449,7 @@ private var dailyStepsTaskKey: String {
                         launchFillEpoch: launchFillEpoch
                     )
                         .frame(maxWidth: .infinity)
-                        .padding(.top, -8)
+                        .padding(.top, -16)
                         .contentShape(Rectangle())
                         .simultaneousGesture(daySwipeGesture)
                         .listRowBackground(Color.clear)

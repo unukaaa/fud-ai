@@ -605,7 +605,7 @@ struct CalorieGauge: View {
                     style: gaugeStroke
                 )
                 .padding(lineWidth / 2)
-                .shadow(color: AppColors.dashboard.opacity(0.35), radius: 6, y: 2)
+                .shadow(color: AppColors.dashboard.opacity(0.22), radius: 5, y: 2)
                 // Implicit animation on the trim — the reliable way to animate a
                 // Shape's .trim (withAnimation from an async block does not take here).
                 .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shownProgress)
@@ -620,20 +620,17 @@ struct CalorieGauge: View {
 
                 Text(eaten.formatted())
                     .font(.system(size: 50, weight: .bold, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(colors: AppColors.dashboardGradient,
-                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
+                    .foregroundStyle(.white)
                     .contentTransition(.numericText())
                     .animation(.snappy, value: eaten)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
 
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: eaten > goal && goal > 0 ? "flame.fill" : "checkmark.circle.fill")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                     Text(statusText)
-                        .font(.system(.footnote, design: .rounded, weight: .semibold))
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 }
                 .foregroundStyle(statusColor)
 
@@ -675,12 +672,12 @@ struct MacroHorizontalCard: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 5) {
                 Circle().fill(gradient.first ?? .secondary).frame(width: 7, height: 7)
-                Text(label).font(.system(.caption, design: .rounded, weight: .semibold))
+                Text(label).font(.system(.subheadline, design: .rounded, weight: .semibold))
                 Spacer(minLength: 2)
             }
 
             Text("\(MacroValueFormatter.string(current)) / \(MacroValueFormatter.string(goal))g")
-                .font(.system(.caption2, design: .rounded, weight: .medium))
+                .font(.system(.caption, design: .rounded, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -693,10 +690,10 @@ struct MacroHorizontalCard: View {
                         .frame(width: max(5, geometry.size.width * progress))
                 }
             }
-            .frame(height: 6)
+            .frame(height: 7)
 
             Text(statusText)
-                .font(.system(.caption2, design: .rounded, weight: .medium))
+                .font(.system(.caption, design: .rounded, weight: .medium))
                 .foregroundStyle(isOver ? .red : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
@@ -814,13 +811,13 @@ struct DailyStepsRow: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "figure.walk")
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: 13, weight: .regular))
             Text(stepsLabel)
-                .font(.system(.body, design: .rounded, weight: .medium))
+                .font(.system(.subheadline, design: .rounded, weight: .regular))
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity)
-        .padding(.bottom, 4)
+        .padding(.bottom, 0)
     }
 
     private var stepsLabel: String {
