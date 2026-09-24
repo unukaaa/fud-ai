@@ -68,6 +68,7 @@ struct FoodResultView: View {
     @State private var showWhatIfSheet = false
     @State private var imagePreview: FullScreenImagePreview?
     @State private var submissionGate = FoodSubmissionGate()
+    @State private var showSuccess = false
     @State var mealType: MealType = .currentMeal
     // Editable log date/time; seeded from the diary day being viewed (now when
     // it is today) so an untouched save behaves exactly like before.
@@ -390,6 +391,22 @@ struct FoodResultView: View {
         servingSizeIsKnown = true
     }
 
+    private func reviewSummaryValue(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
@@ -437,6 +454,26 @@ struct FoodResultView: View {
                             }
                             .listRowBackground(Color.clear)
                         }
+                    }
+
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack(alignment: .top, spacing: 8) {
+                                Text(name)
+                                    .font(.system(.title2, design: .rounded, weight: .bold))
+                                Spacer()
+                                Text(nutritionConfidence == "Low" ? "⚠ Check estimate" : "✨ AI estimate")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(nutritionConfidence == "Low" ? .orange : .secondary)
+                            }
+                            HStack(spacing: 8) {
+                                reviewSummaryValue("Calories", "\(scaledCalories) cals", .primary)
+                                reviewSummaryValue("Protein", MacroValueFormatter.withUnit(scaledProtein), .green)
+                                reviewSummaryValue("Carbs", MacroValueFormatter.withUnit(scaledCarbs), Color(hex: 0x0A84FF))
+                                reviewSummaryValue("Fat", MacroValueFormatter.withUnit(scaledFat), Color(hex: 0xFF9500))
+                            }
+                        }
+                        .listRowBackground(Color.clear)
                     }
 
                     Section("Food Details") {
@@ -673,16 +710,6 @@ struct FoodResultView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }
                     }
-                    ToolbarItemGroup(placement: .confirmationAction) {
-                        Button("Portion") { showWhatIfSheet = true }
-                            .font(.system(.body, design: .rounded, weight: .semibold))
-                            .tint(AppColors.protein)
-
-                        Button("Log", action: logFood)
-                            .font(.system(.body, design: .rounded, weight: .semibold))
-                            .tint(AppColors.calorie)
-                            .disabled(submissionGate.isSubmitting)
-                    }
                 }
                 .sheet(isPresented: $showWhatIfSheet) {
                     WhatIfMealImpactSheet(
@@ -716,6 +743,26 @@ struct FoodResultView: View {
                     )
                 }
                 .fullScreenImagePreview($imagePreview)
+                .safeAreaInset(edge: .bottom) {
+                    Button(action: logFood) {
+                        Text("Add to \(mealType.displayName)")
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(AppColors.calorie)
+                    .controlSize(.large)
+                    .disabled(submissionGate.isSubmitting)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+                }
+                .alert("Meal added!", isPresented: $showSuccess) {
+                    Button("View today") { dismiss() }
+                    Button("Add another meal", role: .cancel) { dismiss() }
+                } message: {
+                    Text("\(name)\n\(scaledCalories) cals · \(MacroValueFormatter.withUnit(scaledProtein)) protein")
+                }
             }
         }
     }
@@ -732,7 +779,7 @@ struct FoodResultView: View {
         guard submissionGate.begin() else { return }
         let entry = makeFoodEntry(includeImage: true)
         onLog(entry)
-        dismiss()
+        showSuccess = true
     }
 
     private func applySuggestedPortion(_ fraction: Double) {
