@@ -1112,13 +1112,32 @@ struct HomeView: View {
     private var waterPillarUnit: String { waterUnit == .fluidOunces ? " fl oz" : "ml" }
     private var logDateForSelectedDay: Date { logDate(on: selectedDate) }
 
+    @ViewBuilder
+    private var todayMacroCards: some View {
+        HStack(alignment: .top, spacing: 8) {
+            ForEach(displayedHomeNutrients) { nutrient in
+                MacroHorizontalCard(
+                    label: nutrient.displayName,
+                    current: nutrient.value(from: foodStore, on: selectedDate),
+                    goal: nutrient.goal(for: userProfile, optionalGoals: optionalNutrientGoals),
+                    gradient: nutrient.gradientColors
+                )
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .simultaneousGesture(daySwipeGesture)
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+    }
+
     private var navigationTitle: String {
         if isToday { return "Today" }
         return selectedDate.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
     }
 
     /// Horizontal swipe → previous/next day. Attached only to the top section (calorie hero +
-    /// macros), not the food log below "View More", so it never competes with the food rows'
+    /// macros), not the food log below the summary, so it never competes with the food rows'
     /// own swipe actions or vertical scrolling there. `.simultaneousGesture` lets the List still
     /// scroll; we act only on a clearly horizontal flick.
     private var daySwipeGesture: some Gesture {
@@ -1140,6 +1159,28 @@ struct HomeView: View {
         if delta > 0 && calendar.startOfDay(for: newDate) > calendar.startOfDay(for: .now) { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         selectedDate = newDate
+    }
+
+    private func toggleFoodSelection(_ entry: FoodEntry) {
+        let entryID = entry.id
+        if selectedFoodIDs.contains(entryID) {
+            selectedFoodIDs.remove(entryID)
+        } else {
+            selectedFoodIDs.insert(entryID)
+        }
+    }
+
+    private func handleFoodRowTap(_ entry: FoodEntry) {
+        if isFoodSelectionMode {
+            toggleFoodSelection(entry)
+        } else {
+            editingEntry = entry
+            activeSheet = .editFood
+        }
+    }
+
+    private func foodIsSelected(_ entry: FoodEntry) -> Bool {
+        selectedFoodIDs.contains(entry.id)
     }
 
 private var dailyStepsTaskKey: String {
@@ -1376,7 +1417,6 @@ private var dailyStepsTaskKey: String {
                     CalorieGauge(
                         eaten: selectedCalories,
                         goal: calorieGoal,
-                        burnLine: homeBurnLine,
                         launchFillEpoch: launchFillEpoch
                     )
                         .frame(maxWidth: .infinity)
@@ -1395,51 +1435,8 @@ private var dailyStepsTaskKey: String {
                             .listRowSeparator(.hidden)
                     }
 
-                    HStack(alignment: .top, spacing: 4) {
-                        ForEach(displayedHomeNutrients) { nutrient in
-                            MacroVerticalBar(
-                                label: nutrient.displayName,
-                                current: nutrient.value(from: foodStore, on: selectedDate),
-                                goal: nutrient.goal(for: userProfile, optionalGoals: optionalNutrientGoals),
-                                unit: nutrient.unit,
-                                gradient: nutrient.gradientColors,
-                                launchFillEpoch: launchFillEpoch
-                            )
-                        }
-                        if waterTrackingEnabled {
-                            MacroVerticalBar(
-                                label: "Water",
-                                current: waterUnit.displayAmount(
-                                    forMilliliters: waterStore.total(on: selectedDate)
-                                ),
-                                goal: waterUnit.displayAmount(forMilliliters: waterDailyGoal),
-                                unit: waterPillarUnit,
-                                gradient: AppColors.calorieGradient,
-                                launchFillEpoch: launchFillEpoch
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(daySwipeGesture)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
+                    todayMacroCards
 
-                    Button {
-                        showNutritionDetail = true
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Text("View More")
-                                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                            Spacer()
-                        }
-                        .foregroundStyle(AppColors.calorie.opacity(0.6))
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
                 }
 
                 // Unified diary: water and fasting are grouped by their log/end time,
@@ -1468,46 +1465,7 @@ private var dailyStepsTaskKey: String {
                                 Group {
                                     switch item {
                                     case .food(let entry):
-                                        HStack(spacing: 12) {
-                                            if isFoodSelectionMode {
-                                                Image(systemName: selectedFoodIDs.contains(entry.id) ? "checkmark.circle.fill" : "circle")
-                                                    .font(.title2)
-                                                    .foregroundStyle(selectedFoodIDs.contains(entry.id) ? AppColors.calorie : .secondary)
-                                            }
-                                            FoodRow(entry: entry)
-                                        }
-                                        .contentShape(Rectangle())
-                                        .onTapGesture {
-                                            if isFoodSelectionMode {
-                                                if selectedFoodIDs.contains(entry.id) {
-                                                    selectedFoodIDs.remove(entry.id)
-                                                } else {
-                                                    selectedFoodIDs.insert(entry.id)
-                                                }
-                                            } else {
-                                                editingEntry = entry
-                                                activeSheet = .editFood
-                                            }
-                                        }
-                                        .onLongPressGesture {
-                                            selectedFoodIDs.insert(entry.id)
-                                        }
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                            if !isFoodSelectionMode {
-                                                Button {
-                                                    pendingDiaryDeletion = .food(entry)
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash.fill")
-                                                }
-                                                .tint(.red)
-                                                Button {
-                                                    foodStore.toggleFavorite(entry)
-                                                } label: {
-                                                    Label(foodStore.isFavorite(entry) ? "Unfavorite" : "Favorite", systemImage: foodStore.isFavorite(entry) ? "heart.slash.fill" : "heart.fill")
-                                                }
-                                                .tint(AppColors.calorie)
-                                            }
-                                        }
+                                        todayFoodRow(entry)
                                     case .water(let entry):
                                         WaterLogRow(entry: entry, unit: waterUnit)
                                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -2167,6 +2125,35 @@ private var dailyStepsTaskKey: String {
             }
             .onReceive(NotificationCenter.default.publisher(for: .fudBarcodeAlertCancel)) { _ in
                 retryRequest = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func todayFoodRow(_ entry: FoodEntry) -> some View {
+        HStack(spacing: 12) {
+            if isFoodSelectionMode {
+                FoodSelectionIndicator(isSelected: foodIsSelected(entry))
+            }
+            FoodRow(entry: entry, compact: true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { handleFoodRowTap(entry) }
+        .onLongPressGesture { selectedFoodIDs.insert(entry.id) }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if !isFoodSelectionMode {
+                Button {
+                    pendingDiaryDeletion = .food(entry)
+                } label: {
+                    Label("Delete", systemImage: "trash.fill")
+                }
+                .tint(.red)
+                Button {
+                    foodStore.toggleFavorite(entry)
+                } label: {
+                    Label(foodStore.isFavorite(entry) ? "Unfavorite" : "Favorite", systemImage: foodStore.isFavorite(entry) ? "heart.slash.fill" : "heart.fill")
+                }
+                .tint(AppColors.calorie)
             }
         }
     }
@@ -3835,10 +3822,26 @@ final class BarcodeScannerViewController: UIViewController, AVCaptureMetadataOut
 }
 
 // MARK: - Food Row
+private struct FoodSelectionIndicator: View {
+    let isSelected: Bool
+
+    var body: some View {
+        Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+            .font(.title2)
+            .foregroundStyle(isSelected ? AppColors.calorie : .secondary)
+    }
+}
+
 struct FoodRow: View {
     let entry: FoodEntry
+    let compact: Bool
     @Environment(FoodStore.self) private var foodStore
     @State private var imagePreview: FullScreenImagePreview?
+
+    init(entry: FoodEntry, compact: Bool = false) {
+        self.entry = entry
+        self.compact = compact
+    }
 
     private var servingText: String? {
         guard let grams = entry.servingSizeGrams else {
@@ -3917,7 +3920,7 @@ struct FoodRow: View {
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
                         .foregroundStyle(AppColors.calorie)
 
-                    if let serving = servingText {
+                    if !compact, let serving = servingText {
                         Text("·")
                             .foregroundStyle(.tertiary)
                         Text(serving)
@@ -3926,10 +3929,16 @@ struct FoodRow: View {
                     }
                 }
 
-                HStack(spacing: 8) {
-                    MacroPill(label: "P", value: entry.protein)
-                    MacroPill(label: "C", value: entry.carbs)
-                    MacroPill(label: "F", value: entry.fat)
+                if compact {
+                    Text("\(MacroValueFormatter.withUnit(entry.protein)) protein")
+                        .font(.system(.caption, design: .rounded, weight: .medium))
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 8) {
+                        MacroPill(label: "P", value: entry.protein)
+                        MacroPill(label: "C", value: entry.carbs)
+                        MacroPill(label: "F", value: entry.fat)
+                    }
                 }
             }
         }

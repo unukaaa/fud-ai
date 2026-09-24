@@ -548,13 +548,10 @@ struct MacroCard: View {
     }
 }
 
-/// Semicircle speedometer-style gauge for total calories — segmented (dashed) accent arc with the
-/// calorie count, "Calories" label, and remaining read out in the center. Flat, no card.
+/// Semicircle gauge for total calories with a smooth continuous accent arc.
 struct CalorieGauge: View {
     let eaten: Int
     let goal: Int
-    /// Secondary display-only burn/deficit line when Health energy is available.
-    var burnLine: String? = nil
     /// Increments when the app is opened; drives the fill-from-zero reveal.
     var launchFillEpoch: Int = 0
 
@@ -586,8 +583,8 @@ struct CalorieGauge: View {
         eaten > goal && goal > 0 ? .red : .green
     }
 
-    private var dashedStroke: StrokeStyle {
-        StrokeStyle(lineWidth: lineWidth, lineCap: .butt, dash: [4, 6])
+    private var gaugeStroke: StrokeStyle {
+        StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
     }
 
     var body: some View {
@@ -596,7 +593,7 @@ struct CalorieGauge: View {
             // inside the frame so the arc ends aren't clipped flat on each side.
             Circle()
                 .trim(from: 0.5, to: 1.0)
-                .stroke(AppColors.calorie.opacity(0.12), style: dashedStroke)
+                .stroke(AppColors.calorie.opacity(0.12), style: gaugeStroke)
                 .padding(lineWidth / 2)
 
             // Progress sweep — driven by shownProgress so it fills from zero on app open.
@@ -605,7 +602,7 @@ struct CalorieGauge: View {
                 .stroke(
                     LinearGradient(colors: AppColors.calorieGradient,
                                    startPoint: .leading, endPoint: .trailing),
-                    style: dashedStroke
+                    style: gaugeStroke
                 )
                 .padding(lineWidth / 2)
                 .shadow(color: AppColors.calorie.opacity(0.35), radius: 6, y: 2)
@@ -640,11 +637,6 @@ struct CalorieGauge: View {
                 }
                 .foregroundStyle(statusColor)
 
-                if let burnLine {
-                    Text(burnLine)
-                        .font(.system(.caption2, design: .rounded, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                }
             }
             .offset(y: -diameter * 0.14)
         }
@@ -666,6 +658,61 @@ struct CalorieGauge: View {
         reset.disablesAnimations = true
         withTransaction(reset) { shownProgress = 0 }
         DispatchQueue.main.async { shownProgress = progress }
+    }
+}
+
+/// Compact horizontal macro card used only on Today.
+struct MacroHorizontalCard: View {
+    let label: String
+    let current: Double
+    let goal: Double
+    let gradient: [Color]
+
+    private var progress: Double { goal > 0 ? min(current / goal, 1) : 0 }
+    private var isOver: Bool { goal > 0 && current > goal }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                Circle().fill(gradient.first ?? .secondary).frame(width: 7, height: 7)
+                Text(label).font(.system(.caption, design: .rounded, weight: .semibold))
+                Spacer(minLength: 2)
+            }
+
+            Text("\(MacroValueFormatter.string(current)) / \(MacroValueFormatter.string(goal))g")
+                .font(.system(.caption2, design: .rounded, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule().fill((gradient.first ?? .secondary).opacity(0.14))
+                    Capsule()
+                        .fill(LinearGradient(colors: gradient, startPoint: .leading, endPoint: .trailing))
+                        .frame(width: max(5, geometry.size.width * progress))
+                }
+            }
+            .frame(height: 6)
+
+            Text(statusText)
+                .font(.system(.caption2, design: .rounded, weight: .medium))
+                .foregroundStyle(isOver ? .red : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppColors.appCard, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var statusText: String {
+        guard goal > 0 else { return "No target" }
+        let difference = abs(goal - current)
+        if difference < 0.05 { return "Goal reached" }
+        return isOver
+            ? "\(MacroValueFormatter.string(difference))g over"
+            : "\(MacroValueFormatter.string(difference))g left"
     }
 }
 
