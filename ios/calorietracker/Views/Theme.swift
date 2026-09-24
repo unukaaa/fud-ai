@@ -220,6 +220,11 @@ enum AppColors {
     static var calorie: Color { AppThemeColor.current.color }
     static var dashboardGradient: [Color] { AppThemeColor.dashboardCurrent.dashboardGradientColors }
     static var dashboard: Color { AppThemeColor.dashboardCurrent.color }
+    /// Fixed Today gauge palette. It deliberately ignores the global app tint and
+    /// any legacy dashboard preference so the dashboard stays consistent.
+    static let standardCalorieGradient: [Color] = [
+        Color(hex: 0x19E6A3), Color(hex: 0xF4F542), Color(hex: 0xFF9F1C), Color(hex: 0xFF6B6B)
+    ]
 
     // Macro helpers retain their existing app-wide behaviour. Today’s fixed
     // macro colours are applied locally by HomeTopNutrient.

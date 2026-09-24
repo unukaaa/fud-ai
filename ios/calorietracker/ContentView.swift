@@ -1146,9 +1146,9 @@ struct HomeView: View {
         }
     }
 
-    private var firstName: String {
+    private var firstName: String? {
         let trimmed = (userProfile.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.split(separator: " ").first.map(String.init) ?? "User"
+        return trimmed.split(separator: " ").first.map(String.init)
     }
 
     /// Horizontal swipe → previous/next day. Attached only to the top section (calorie hero +
@@ -1421,8 +1421,13 @@ private var dailyStepsTaskKey: String {
                             Text(greetingText)
                                 .font(.system(.subheadline, design: .rounded, weight: .medium))
                                 .foregroundStyle(.secondary)
-                            Text("\(firstName) 👋")
-                                .font(.system(.title2, design: .rounded, weight: .bold))
+                            if let firstName {
+                                Text("\(firstName) 👋")
+                                    .font(.system(.title2, design: .rounded, weight: .bold))
+                            } else {
+                                Text("👋")
+                                    .font(.system(.title2, design: .rounded, weight: .bold))
+                            }
                         }
                         Spacer()
                         Button { showDatePicker = true } label: {
@@ -1571,9 +1576,11 @@ private var dailyStepsTaskKey: String {
                 } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 26, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(.primary)
                                 .frame(width: 60, height: 60)
-                                .background(AppColors.dashboard, in: Circle())
+                                .background(.ultraThinMaterial, in: Circle())
+                                .overlay(Circle().stroke(Color.primary.opacity(0.18), lineWidth: 1))
+                                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
                         }
                         .accessibilityIdentifier("home.add")
                         .opacity(isFoodSelectionMode ? 0 : 1)
@@ -2678,7 +2685,7 @@ private struct SiriPhrasesSettingsView: View {
                         .foregroundStyle(.secondary)
                 } icon: {
                     Image(systemName: "waveform.circle.fill")
-                        .foregroundStyle(AppColors.calorie)
+                        .foregroundStyle(.primary)
                 }
             }
             .listRowBackground(AppColors.appCard)
@@ -3861,7 +3868,7 @@ struct FoodRow: View {
                 HStack(spacing: 6) {
                     Text("\(entry.calories.formatted()) kcal")
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                        .foregroundStyle(AppColors.calorie)
+                        .foregroundStyle(.primary)
 
                     if !compact, let serving = servingText {
                         Text("·")
@@ -4448,7 +4455,6 @@ struct ProfileView: View {
     @AppStorage(FoodMeasurementSettings.preferGramsByDefaultKey) private var preferGramsByDefault = false
     @AppStorage(MealPhotoSettings.saveToGalleryKey) private var saveMealPhotosToGallery = false
     @AppStorage(AppThemeColor.storageKey) private var appThemeColorRaw = AppThemeColor.defaultColor.rawValue
-    @AppStorage(AppThemeColor.dashboardStorageKey) private var dashboardThemeColorRaw = AppThemeColor.defaultColor.rawValue
     @AppStorage(WaterSettings.enabledKey) private var waterTrackingEnabled = false
     @AppStorage(WaterSettings.dailyGoalKey) private var waterDailyGoal = WaterSettings.defaultDailyGoalMl
     @AppStorage(WaterSettings.unitKey) private var waterUnitRaw = WaterUnit.defaultUnit.rawValue
@@ -4982,26 +4988,6 @@ struct ProfileView: View {
                             Text("Appearance")
                         } icon: {
                             Image(systemName: "circle.lefthalf.filled")
-                                .foregroundStyle(AppColors.calorie)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .tint(.secondary)
-
-                    Picker(selection: $dashboardThemeColorRaw) {
-                        ForEach(AppThemeColor.dashboardCases) { themeColor in
-                            Label {
-                                Text(themeColor.dashboardDisplayName)
-                            } icon: {
-                                Image(uiImage: themeColor.menuSwatchImage)
-                            }
-                            .tag(themeColor.rawValue)
-                        }
-                    } label: {
-                        Label {
-                            Text("Theme Color")
-                        } icon: {
-                            Image(systemName: "paintpalette.fill")
                                 .foregroundStyle(AppColors.calorie)
                         }
                     }

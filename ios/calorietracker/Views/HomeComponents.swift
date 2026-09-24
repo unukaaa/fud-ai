@@ -563,11 +563,6 @@ struct CalorieGauge: View {
 
     @State private var shownProgress: Double = 0
     @State private var lastEpoch = 0
-    // The arc reads its colors from static AppColors accessors and none of the
-    // stored inputs change with the theme, so SwiftUI skips this view on theme
-    // switches. Observing the setting re-renders it in place (state intact).
-    @AppStorage(AppThemeColor.dashboardStorageKey) private var dashboardThemeColorRaw = AppThemeColor.defaultColor.rawValue
-
     private var progress: Double {
         goal > 0 ? min(Double(eaten) / Double(goal), 1.0) : 0
     }
@@ -593,19 +588,19 @@ struct CalorieGauge: View {
             // inside the frame so the arc ends aren't clipped flat on each side.
             Circle()
                 .trim(from: 0.5, to: 1.0)
-                .stroke(AppColors.dashboard.opacity(0.12), style: gaugeStroke)
+                .stroke(Color.primary.opacity(0.12), style: gaugeStroke)
                 .padding(lineWidth / 2)
 
             // Progress sweep — driven by shownProgress so it fills from zero on app open.
             Circle()
                 .trim(from: 0.5, to: 0.5 + 0.5 * shownProgress)
                 .stroke(
-                    LinearGradient(colors: AppColors.dashboardGradient,
+                    LinearGradient(colors: AppColors.standardCalorieGradient,
                                    startPoint: .leading, endPoint: .trailing),
                     style: gaugeStroke
                 )
                 .padding(lineWidth / 2)
-                .shadow(color: AppColors.dashboard.opacity(0.22), radius: 5, y: 2)
+                .shadow(color: AppColors.standardCalorieGradient.last!.opacity(0.20), radius: 5, y: 2)
                 // Implicit animation on the trim — the reliable way to animate a
                 // Shape's .trim (withAnimation from an async block does not take here).
                 .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shownProgress)
