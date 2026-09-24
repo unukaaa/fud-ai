@@ -1043,6 +1043,14 @@ private struct WhatIfMealImpactSheet: View {
         min(max(maximumFraction * 0.9, 0.05), 1)
     }
 
+    private var suggestedCalories: Int {
+        Int((Double(mealTotals.calories) * suggestedFraction).rounded())
+    }
+
+    private var maximumCalories: Int {
+        Int((Double(mealTotals.calories) * maximumFraction).rounded())
+    }
+
     private var suggestionTaskID: String {
         [
             entry.name,
@@ -1118,7 +1126,7 @@ private struct WhatIfMealImpactSheet: View {
                             onApplyPortion(suggestedFraction)
                             dismiss()
                         } label: {
-                            Label("Use Suggested", systemImage: "checkmark.circle.fill")
+                            Label("Use Suggested · \(suggestedCalories) kcal", systemImage: "checkmark.circle.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -1128,7 +1136,7 @@ private struct WhatIfMealImpactSheet: View {
                             onApplyPortion(maximumFraction)
                             dismiss()
                         } label: {
-                            Label("Use Maximum", systemImage: "gauge.with.dots.needle.67percent")
+                            Label("Use Maximum · \(maximumCalories) kcal", systemImage: "gauge.with.dots.needle.67percent")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)

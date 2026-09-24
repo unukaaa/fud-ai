@@ -262,6 +262,8 @@ struct GeminiService {
         if meal.fat > 0 { portionLimits.append(fatAvailable / meal.fat) }
         let maximumFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
         let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), 1)
+        let suggestedCalories = Int((Double(meal.calories) * suggestedFraction).rounded())
+        let maximumCalories = Int((Double(meal.calories) * maximumFraction).rounded())
         let existingMeals = dayEntries.isEmpty
             ? "No meals logged yet for this day."
             : dayEntries
@@ -278,8 +280,8 @@ struct GeminiService {
         Analyze this what-if scenario only. Do not say the meal has already been logged. Do not change the user's goals.
 
         Return exactly 2 short plain-English lines, no markdown and no bullets, with 45 words maximum total.
-        Line 1 must begin "Suggested:" and give a comfortable portion for each component.
-        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits.
+        Line 1 must begin "Suggested:" and give a comfortable portion for each component, ending with "~(suggestedCalories) kcal".
+        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits, ending with "~(maximumCalories) kcal".
         Use everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
         Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
         Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
