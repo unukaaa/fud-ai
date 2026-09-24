@@ -647,7 +647,7 @@ struct FoodResultView: View {
                         Button("Cancel") { dismiss() }
                     }
                     ToolbarItemGroup(placement: .confirmationAction) {
-                        Button("What if?") { showWhatIfSheet = true }
+                        Button("Fit to Today") { showWhatIfSheet = true }
                             .font(.system(.body, design: .rounded, weight: .semibold))
                             .tint(AppColors.protein)
 
@@ -1068,11 +1068,11 @@ private struct WhatIfMealImpactSheet: View {
                     Text("This does not log the meal. It shows what today would look like if you logged \(entry.name).")
                 }
 
-                Section("AI Suggestion") {
+                Section("Suggested Portion") {
                     if isLoadingSuggestion {
                         HStack(spacing: 12) {
                             ProgressView()
-                            Text("Checking fit with your goals...")
+                            Text("Working out a sensible portion...")
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 4)
@@ -1096,7 +1096,7 @@ private struct WhatIfMealImpactSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(AppColors.appBackground)
-            .navigationTitle("What if?")
+            .navigationTitle("Fit to Today")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

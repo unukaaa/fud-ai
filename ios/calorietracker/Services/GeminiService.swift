@@ -268,7 +268,9 @@ struct GeminiService {
 
         Return exactly 2 short plain-English sentences, no markdown and no bullets, with 35 words maximum total.
         Sentence 1: give a direct verdict on whether the meal fits today's remaining calories and macros.
-        Sentence 2: give only the single highest-impact adjustment, using a specific food swap, portion change, or protein addition.
+        Sentence 2: recommend a practical portion for each visible or named component using everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
+        Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
+        Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
         Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
 
         User:
