@@ -254,7 +254,18 @@ struct GeminiService {
         let fatAvailable = max(goals.fat - current.fat, 0)
         if meal.fat > 0 { portionLimits.append(fatAvailable / meal.fat) }
         let maximumFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
-        let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), 1)
+        let normalizedName = entry.name.lowercased()
+        let comfortableServingGrams: Double? = {
+            if normalizedName.contains("popcorn") { return 25 }
+            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 30 }
+            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
+            if normalizedName.contains("cracker") { return 30 }
+            return nil
+        }()
+        let comfortableFraction = comfortableServingGrams.flatMap { grams in
+            entry.servingSizeGrams.map { min(max(grams / $0, 0.05), 1) }
+        } ?? 1
+        let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), comfortableFraction)
         let suggestedCalories = Int((Double(meal.calories) * suggestedFraction).rounded())
         let maximumCalories = Int((Double(meal.calories) * maximumFraction).rounded())
 
@@ -272,6 +283,13 @@ struct GeminiService {
             "tsp", "teaspoon", "teaspoons", "cup", "cups"
         ]
         let supportedUnits = countableUnits.union(householdUnits)
+        let inferredGramsPerHandful: Double? = {
+            if normalizedName.contains("popcorn") { return 12.5 }
+            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 25 }
+            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
+            if normalizedName.contains("cracker") { return 20 }
+            return nil
+        }()
         let selectedUnit = entry.selectedServingUnit?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -305,6 +323,18 @@ struct GeminiService {
                     displayedQuantity = String(format: "%.1f", scaledQuantity)
                 }
                 return "about \(displayedQuantity) \(option.displayUnit(for: scaledQuantity))"
+            }
+
+            if let totalGrams = entry.servingSizeGrams,
+               let gramsPerHandful = inferredGramsPerHandful,
+               totalGrams > 0 {
+                let rawHandfuls = totalGrams * fraction / gramsPerHandful
+                let roundedHandfuls = max((rawHandfuls * 2).rounded() / 2, 0.5)
+                let amount = abs(roundedHandfuls.rounded() - roundedHandfuls) < 0.05
+                    ? String(Int(roundedHandfuls.rounded()))
+                    : String(format: "%.1f", roundedHandfuls)
+                let unit = abs(roundedHandfuls - 1) < 0.05 ? "handful" : "handfuls"
+                return "about \(amount) \(unit)"
             }
 
             if isMaximum && fraction >= 0.995 {

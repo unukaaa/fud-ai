@@ -1038,9 +1038,20 @@ private struct WhatIfMealImpactSheet: View {
     }
 
     private var suggestedFraction: Double {
-        // Leave roughly 10% breathing room so the recommendation is practical,
-        // while Maximum shows the hard upper bound for the day.
-        min(max(maximumFraction * 0.9, 0.05), 1)
+        // Suggested should be a normal everyday serving, not simply 90% of
+        // everything the user could technically fit into today's limits.
+        let normalizedName = entry.name.lowercased()
+        let comfortableServingGrams: Double? = {
+            if normalizedName.contains("popcorn") { return 25 }
+            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 30 }
+            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
+            if normalizedName.contains("cracker") { return 30 }
+            return nil
+        }()
+        let comfortableFraction = comfortableServingGrams.flatMap { grams in
+            entry.servingSizeGrams.map { min(max(grams / $0, 0.05), 1) }
+        } ?? 1
+        return min(max(maximumFraction * 0.9, 0.05), comfortableFraction)
     }
 
     private var suggestedCalories: Int {
