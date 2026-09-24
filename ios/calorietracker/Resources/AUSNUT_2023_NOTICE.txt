@@ -1,0 +1,7 @@
+Food AI includes nutrition data derived from AUSNUT 2023.
+
+Copyright Food Standards Australia New Zealand (FSANZ).
+Source: https://www.foodstandards.gov.au/science-data/food-nutrient-databases/ausnut/data-files
+
+FSANZ does not endorse Food AI. Nutrition results remain estimates when the
+food identity, preparation method, recipe, or portion size cannot be confirmed.

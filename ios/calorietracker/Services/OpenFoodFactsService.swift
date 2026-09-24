@@ -264,7 +264,10 @@ enum OpenFoodFactsService {
             servingUnitOptions: servingOptions,
             selectedServingUnit: servingOption.unit,
             selectedServingQuantity: 1,
-            productMetadata: metadata
+            productMetadata: metadata,
+            nutritionSource: "Open Food Facts",
+            nutritionSourceDetail: "Barcode match; check the package label if values look outdated",
+            nutritionConfidence: "Medium"
         )
     }
 

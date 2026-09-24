@@ -45,6 +45,9 @@ struct GeminiService {
         var progressiveMeal = false
         var ingredients: [MealIngredient] = []
         var productMetadata: FoodProductMetadata? = nil
+        var nutritionSource = "AI estimate"
+        var nutritionSourceDetail: String? = nil
+        var nutritionConfidence = "Low"
 
         /// When the model also returned a breakdown, the header macros are the sum of that list.
         func withIngredientMacroTotals() -> FoodAnalysis {
@@ -129,7 +132,10 @@ struct GeminiService {
                 omega3: omega3Per100g.map { round($0 * scale * 10) / 10 },
                 servingUnitOptions: servingUnitOptions,
                 selectedServingUnit: selectedOption?.unit,
-                selectedServingQuantity: selectedOption?.quantity(for: grams)
+                selectedServingQuantity: selectedOption?.quantity(for: grams),
+                nutritionSource: "Nutrition label",
+                nutritionSourceDetail: "Values read from the photographed package label",
+                nutritionConfidence: "High"
             )
         }
     }
@@ -325,7 +331,8 @@ struct GeminiService {
         """
         return try await runWithHostedQuota(.textFood, skip: skipHostedMetering) {
             let analysis = try await callTextFoodAnalysis(prompt: prompt, description: description)
-            return await addingFallbackServingUnits(to: analysis, image: nil, description: description)
+            let result = await addingFallbackServingUnits(to: analysis, image: nil, description: description)
+            return AustralianNutritionService.applyingBestAustralianMatch(to: result)
         }
     }
 
@@ -347,7 +354,8 @@ struct GeminiService {
         return try await runWithHostedQuota(.photoFood) {
             let text = try await callAI(prompt: prompt, image: image)
             let analysis = try parseFoodAnalysis(from: text)
-            return await addingFallbackServingUnits(to: analysis, image: image, description: nil)
+            let result = await addingFallbackServingUnits(to: analysis, image: image, description: nil)
+            return AustralianNutritionService.applyingBestAustralianMatch(to: result)
         }
     }
 
@@ -374,11 +382,13 @@ struct GeminiService {
                 images: [image],
                 description: description
             ) {
-                return await addingFallbackServingUnits(to: onDevice, image: image, description: description)
+                let result = await addingFallbackServingUnits(to: onDevice, image: image, description: description)
+                return AustralianNutritionService.applyingBestAustralianMatch(to: result)
             }
             let text = try await callAI(prompt: prompt, image: image)
             let analysis = try parseFoodAnalysis(from: text)
-            return await addingFallbackServingUnits(to: analysis, image: image, description: description)
+            let result = await addingFallbackServingUnits(to: analysis, image: image, description: description)
+            return AustralianNutritionService.applyingBestAustralianMatch(to: result)
         }
     }
 
@@ -440,13 +450,13 @@ struct GeminiService {
             ) {
                 var result = await addingFallbackServingUnits(to: onDevice, image: images[0], description: description)
                 result.progressiveMeal = progressiveMeal
-                return result
+                return AustralianNutritionService.applyingBestAustralianMatch(to: result)
             }
             let text = try await callAI(prompt: prompt, images: images)
             let analysis = try parseFoodAnalysis(from: text)
             var result = await addingFallbackServingUnits(to: analysis, image: images[0], description: description)
             result.progressiveMeal = progressiveMeal
-            return result
+            return AustralianNutritionService.applyingBestAustralianMatch(to: result)
         }
     }
 

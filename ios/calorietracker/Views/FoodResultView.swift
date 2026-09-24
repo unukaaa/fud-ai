@@ -20,6 +20,9 @@ struct FoodResultView: View {
     let source: FoodSource
     let progressiveMeal: Bool
     let productMetadata: FoodProductMetadata?
+    let nutritionSource: String
+    let nutritionSourceDetail: String?
+    let nutritionConfidence: String
 
     @State private var baseServingSizeGrams: Double
     @State private var servingUnitOptions: [ServingUnitOption]
@@ -132,6 +135,9 @@ struct FoodResultView: View {
         ingredients: [MealIngredient] = [],
         progressiveMeal: Bool = false,
         productMetadata: FoodProductMetadata? = nil,
+        nutritionSource: String = "AI estimate",
+        nutritionSourceDetail: String? = nil,
+        nutritionConfidence: String = "Low",
         servingSizeGrams: Double = 100,
         sugar: Double? = nil,
         addedSugar: Double? = nil,
@@ -199,6 +205,9 @@ struct FoodResultView: View {
         self.source = source
         self.progressiveMeal = progressiveMeal
         self.productMetadata = productMetadata
+        self.nutritionSource = nutritionSource
+        self.nutritionSourceDetail = nutritionSourceDetail
+        self.nutritionConfidence = nutritionConfidence
         self._baseServingSizeGrams = State(initialValue: servingSizeGrams)
         self._servingUnitOptions = State(initialValue: normalizedServingUnitOptions)
         self._servingSizeIsKnown = State(initialValue: servingSizeIsKnown)
@@ -436,6 +445,24 @@ struct FoodResultView: View {
                             Spacer()
                             TextField("Food name", text: $name)
                                 .multilineTextAlignment(.trailing)
+                        }
+                    }
+
+                    Section("Nutrition Source") {
+                        HStack(spacing: 10) {
+                            Image(systemName: nutritionSource == "AUSNUT Australia" ? "checkmark.shield.fill" : "info.circle.fill")
+                                .foregroundStyle(nutritionSource == "AUSNUT Australia" ? Color.green : AppColors.calorie)
+                            Text(nutritionSource)
+                                .font(.system(.body, design: .rounded, weight: .semibold))
+                            Spacer()
+                            Text(nutritionConfidence)
+                                .font(.system(.caption, design: .rounded, weight: .semibold))
+                                .foregroundStyle(nutritionConfidence == "High" ? Color.green : .orange)
+                        }
+                        if let nutritionSourceDetail, !nutritionSourceDetail.isEmpty {
+                            Text(nutritionSourceDetail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
 
