@@ -475,152 +475,6 @@ struct HomeNutrientPickerSheet: View {
 
 // MARK: - Macro Card
 
-/// A calm, glanceable summary that prioritizes the two daily decisions that matter most:
-/// calories remaining and protein remaining. Carbs and fat stay available without competing.
-struct NutritionSummaryCard: View {
-    let calories: Int
-    let calorieGoal: Int
-    let protein: Double
-    let proteinGoal: Double
-    let carbs: Double
-    let carbsGoal: Double
-    let fat: Double
-    let fatGoal: Double
-    var burnLine: String? = nil
-    var launchFillEpoch: Int = 0
-
-    private var calorieRemaining: Int { calorieGoal - calories }
-    private var proteinRemaining: Double { proteinGoal - protein }
-
-    private var calorieStatusColor: Color {
-        limitStatusColor(current: Double(calories), goal: Double(calorieGoal))
-    }
-
-    private var proteinStatusColor: Color {
-        achievementStatusColor(current: protein, goal: proteinGoal)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("TODAY")
-                    .font(.system(.caption, design: .rounded, weight: .bold))
-                    .tracking(0.8)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("\(calories.formatted()) / \(calorieGoal.formatted()) kcal")
-                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(calorieStatusValue)
-                    .font(.system(size: 46, weight: .bold, design: .rounded))
-                    .foregroundStyle(calorieStatusColor)
-                    .contentTransition(.numericText())
-                Text(calorieStatusLabel)
-                    .font(.system(.headline, design: .rounded, weight: .medium))
-                    .foregroundStyle(calorieStatusColor)
-            }
-
-            ProgressView(value: progress(calories, goal: calorieGoal))
-                .tint(calorieStatusColor)
-                .scaleEffect(x: 1, y: 1.7, anchor: .center)
-
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(alignment: .firstTextBaseline) {
-                    Label("Protein", systemImage: "bolt.fill")
-                        .font(.system(.headline, design: .rounded, weight: .bold))
-                    Spacer()
-                    Text("\(MacroValueFormatter.string(protein)) / \(MacroValueFormatter.string(proteinGoal))g")
-                        .font(.system(.headline, design: .rounded, weight: .bold))
-                }
-                .foregroundStyle(proteinStatusColor)
-
-                ProgressView(value: progress(protein, goal: proteinGoal))
-                    .tint(proteinStatusColor)
-
-                Text(proteinStatus)
-                    .font(.system(.caption, design: .rounded, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                compactMacro(label: "Carbs", current: carbs, goal: carbsGoal, color: limitStatusColor(current: carbs, goal: carbsGoal))
-                Divider().frame(height: 32)
-                compactMacro(label: "Fat", current: fat, goal: fatGoal, color: limitStatusColor(current: fat, goal: fatGoal))
-            }
-
-            if let burnLine {
-                Label(burnLine, systemImage: "flame.fill")
-                    .font(.system(.caption, design: .rounded, weight: .medium))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(20)
-        .background(AppColors.appCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(.primary.opacity(0.06), lineWidth: 1)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var calorieStatusValue: String {
-        abs(calorieRemaining).formatted()
-    }
-
-    private var calorieStatusLabel: String {
-        calorieRemaining >= 0 ? "calories remaining" : "calories over"
-    }
-
-    private var proteinStatus: String {
-        let amount = MacroValueFormatter.string(abs(proteinRemaining))
-        return proteinRemaining >= 0 ? "\(amount)g protein remaining" : "\(amount)g over protein goal"
-    }
-
-    private func progress<T: BinaryInteger>(_ current: T, goal: T) -> Double {
-        guard goal > 0 else { return 0 }
-        return min(Double(current) / Double(goal), 1)
-    }
-
-    private func progress(_ current: Double, goal: Double) -> Double {
-        guard goal > 0 else { return 0 }
-        return min(current / goal, 1)
-    }
-
-    /// Calories, carbs and fat act as daily limits. Green leaves breathing room,
-    /// amber means the user is close to the limit, and red means they are over.
-    private func limitStatusColor(current: Double, goal: Double) -> Color {
-        guard goal > 0, current > 0 else { return .secondary }
-        let ratio = current / goal
-        if ratio > 1 { return .red }
-        if ratio >= 0.85 { return .orange }
-        return .green
-    }
-
-    /// Protein is an achievement target, so its traffic-light direction is reversed.
-    private func achievementStatusColor(current: Double, goal: Double) -> Color {
-        guard goal > 0, current > 0 else { return .secondary }
-        let ratio = current / goal
-        if ratio >= 0.9 { return .green }
-        if ratio >= 0.6 { return .orange }
-        return .red
-    }
-
-    private func compactMacro(label: String, current: Double, goal: Double, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.system(.caption, design: .rounded, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Text("\(MacroValueFormatter.string(current)) / \(MacroValueFormatter.string(goal))g")
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(color)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
 struct MacroCard: View {
     let label: String
     let current: Double
@@ -720,6 +574,18 @@ struct CalorieGauge: View {
         goal > 0 ? min(Double(eaten) / Double(goal), 1.0) : 0
     }
 
+    private var statusColor: Color {
+        guard goal > 0, eaten > 0 else { return .secondary }
+        let ratio = Double(eaten) / Double(goal)
+        if ratio > 1 { return .red }
+        if ratio >= 0.85 { return .orange }
+        return .green
+    }
+
+    private var statusGradient: [Color] {
+        [statusColor.opacity(0.72), statusColor]
+    }
+
     private var statusText: String {
         guard goal > 0 else { return "No goal" }
         if eaten < goal { return "\((goal - eaten).formatted()) left" }
@@ -737,19 +603,19 @@ struct CalorieGauge: View {
             // inside the frame so the arc ends aren't clipped flat on each side.
             Circle()
                 .trim(from: 0.5, to: 1.0)
-                .stroke(AppColors.calorie.opacity(0.12), style: dashedStroke)
+                .stroke(statusColor.opacity(0.14), style: dashedStroke)
                 .padding(lineWidth / 2)
 
             // Progress sweep — driven by shownProgress so it fills from zero on app open.
             Circle()
                 .trim(from: 0.5, to: 0.5 + 0.5 * shownProgress)
                 .stroke(
-                    LinearGradient(colors: AppColors.calorieGradient,
+                    LinearGradient(colors: statusGradient,
                                    startPoint: .leading, endPoint: .trailing),
                     style: dashedStroke
                 )
                 .padding(lineWidth / 2)
-                .shadow(color: AppColors.calorie.opacity(0.35), radius: 6, y: 2)
+                .shadow(color: statusColor.opacity(0.32), radius: 6, y: 2)
                 // Implicit animation on the trim — the reliable way to animate a
                 // Shape's .trim (withAnimation from an async block does not take here).
                 .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shownProgress)
@@ -765,7 +631,7 @@ struct CalorieGauge: View {
                 Text(eaten.formatted())
                     .font(.system(size: 50, weight: .bold, design: .rounded))
                     .foregroundStyle(
-                        LinearGradient(colors: AppColors.calorieGradient,
+                        LinearGradient(colors: statusGradient,
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     .contentTransition(.numericText())
@@ -779,7 +645,7 @@ struct CalorieGauge: View {
                     Text(statusText)
                         .font(.system(.footnote, design: .rounded, weight: .semibold))
                 }
-                .foregroundStyle(AppColors.calorie)
+                .foregroundStyle(statusColor)
 
                 if let burnLine {
                     Text(burnLine)
@@ -818,6 +684,8 @@ struct MacroVerticalBar: View {
     let goal: Double
     let unit: String
     let gradient: [Color]
+    /// Protein is a target to reach; calories, carbs and fat are limits to stay within.
+    var achievementTarget = false
     /// Increments when the app is opened; drives the fill-from-zero reveal.
     var launchFillEpoch: Int = 0
 
@@ -829,6 +697,23 @@ struct MacroVerticalBar: View {
 
     private var progress: CGFloat {
         goal > 0 ? CGFloat(min(current / goal, 1.0)) : 0
+    }
+
+    private var statusColor: Color {
+        guard goal > 0, current > 0 else { return .secondary }
+        let ratio = current / goal
+        if achievementTarget {
+            if ratio >= 0.9 { return .green }
+            if ratio >= 0.6 { return .orange }
+            return .red
+        }
+        if ratio > 1 { return .red }
+        if ratio >= 0.85 { return .orange }
+        return .green
+    }
+
+    private var statusGradient: [Color] {
+        [statusColor.opacity(0.72), statusColor]
     }
 
     private var statusText: String {
@@ -844,7 +729,7 @@ struct MacroVerticalBar: View {
             Text(MacroValueFormatter.string(current))
                 .font(.system(.callout, design: .rounded, weight: .bold))
                 .foregroundStyle(
-                    LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: statusGradient, startPoint: .top, endPoint: .bottom)
                 )
                 .contentTransition(.numericText())
                 .animation(.snappy, value: current)
@@ -853,13 +738,13 @@ struct MacroVerticalBar: View {
 
             ZStack(alignment: .bottom) {
                 Capsule()
-                    .fill(AppColors.calorie.opacity(0.12))
+                    .fill(statusColor.opacity(0.14))
                     .frame(width: barWidth, height: barHeight)
 
                 Capsule()
-                    .fill(LinearGradient(colors: gradient, startPoint: .bottom, endPoint: .top))
+                    .fill(LinearGradient(colors: statusGradient, startPoint: .bottom, endPoint: .top))
                     .frame(width: barWidth, height: max(barWidth, barHeight * shownProgress))
-                    .shadow(color: (gradient.first ?? AppColors.calorie).opacity(0.4), radius: 5)
+                    .shadow(color: statusColor.opacity(0.35), radius: 5)
             }
 
             VStack(spacing: 1) {
@@ -868,7 +753,7 @@ struct MacroVerticalBar: View {
                     .foregroundStyle(.primary)
                 Text(statusText)
                     .font(.system(.caption2, design: .rounded, weight: .medium))
-                    .foregroundStyle(current > goal && goal > 0 ? AppColors.calorie : .secondary)
+                    .foregroundStyle(statusColor)
             }
             .lineLimit(1)
             .minimumScaleFactor(0.6)
