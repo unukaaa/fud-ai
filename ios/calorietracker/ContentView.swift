@@ -1403,7 +1403,6 @@ private var dailyStepsTaskKey: String {
                                 goal: nutrient.goal(for: userProfile, optionalGoals: optionalNutrientGoals),
                                 unit: nutrient.unit,
                                 gradient: nutrient.gradientColors,
-                                achievementTarget: nutrient == .protein,
                                 launchFillEpoch: launchFillEpoch
                             )
                         }

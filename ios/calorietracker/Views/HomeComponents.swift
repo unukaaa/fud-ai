@@ -574,18 +574,6 @@ struct CalorieGauge: View {
         goal > 0 ? min(Double(eaten) / Double(goal), 1.0) : 0
     }
 
-    private var statusColor: Color {
-        guard goal > 0, eaten > 0 else { return .secondary }
-        let ratio = Double(eaten) / Double(goal)
-        if ratio > 1 { return .red }
-        if ratio >= 0.85 { return .orange }
-        return .green
-    }
-
-    private var statusGradient: [Color] {
-        [statusColor.opacity(0.72), statusColor]
-    }
-
     private var statusText: String {
         guard goal > 0 else { return "No goal" }
         if eaten < goal { return "\((goal - eaten).formatted()) left" }
@@ -603,19 +591,19 @@ struct CalorieGauge: View {
             // inside the frame so the arc ends aren't clipped flat on each side.
             Circle()
                 .trim(from: 0.5, to: 1.0)
-                .stroke(statusColor.opacity(0.14), style: dashedStroke)
+                .stroke(AppColors.calorie.opacity(0.12), style: dashedStroke)
                 .padding(lineWidth / 2)
 
             // Progress sweep — driven by shownProgress so it fills from zero on app open.
             Circle()
                 .trim(from: 0.5, to: 0.5 + 0.5 * shownProgress)
                 .stroke(
-                    LinearGradient(colors: statusGradient,
+                    LinearGradient(colors: AppColors.calorieGradient,
                                    startPoint: .leading, endPoint: .trailing),
                     style: dashedStroke
                 )
                 .padding(lineWidth / 2)
-                .shadow(color: statusColor.opacity(0.32), radius: 6, y: 2)
+                .shadow(color: AppColors.calorie.opacity(0.35), radius: 6, y: 2)
                 // Implicit animation on the trim — the reliable way to animate a
                 // Shape's .trim (withAnimation from an async block does not take here).
                 .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shownProgress)
@@ -631,7 +619,7 @@ struct CalorieGauge: View {
                 Text(eaten.formatted())
                     .font(.system(size: 50, weight: .bold, design: .rounded))
                     .foregroundStyle(
-                        LinearGradient(colors: statusGradient,
+                        LinearGradient(colors: AppColors.calorieGradient,
                                        startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     .contentTransition(.numericText())
@@ -645,7 +633,7 @@ struct CalorieGauge: View {
                     Text(statusText)
                         .font(.system(.footnote, design: .rounded, weight: .semibold))
                 }
-                .foregroundStyle(statusColor)
+                .foregroundStyle(AppColors.calorie)
 
                 if let burnLine {
                     Text(burnLine)
@@ -684,8 +672,6 @@ struct MacroVerticalBar: View {
     let goal: Double
     let unit: String
     let gradient: [Color]
-    /// Protein is a target to reach; calories, carbs and fat are limits to stay within.
-    var achievementTarget = false
     /// Increments when the app is opened; drives the fill-from-zero reveal.
     var launchFillEpoch: Int = 0
 
@@ -697,23 +683,6 @@ struct MacroVerticalBar: View {
 
     private var progress: CGFloat {
         goal > 0 ? CGFloat(min(current / goal, 1.0)) : 0
-    }
-
-    private var statusColor: Color {
-        guard goal > 0, current > 0 else { return .secondary }
-        let ratio = current / goal
-        if achievementTarget {
-            if ratio >= 0.9 { return .green }
-            if ratio >= 0.6 { return .orange }
-            return .red
-        }
-        if ratio > 1 { return .red }
-        if ratio >= 0.85 { return .orange }
-        return .green
-    }
-
-    private var statusGradient: [Color] {
-        [statusColor.opacity(0.72), statusColor]
     }
 
     private var statusText: String {
@@ -729,7 +698,7 @@ struct MacroVerticalBar: View {
             Text(MacroValueFormatter.string(current))
                 .font(.system(.callout, design: .rounded, weight: .bold))
                 .foregroundStyle(
-                    LinearGradient(colors: statusGradient, startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
                 )
                 .contentTransition(.numericText())
                 .animation(.snappy, value: current)
@@ -738,13 +707,13 @@ struct MacroVerticalBar: View {
 
             ZStack(alignment: .bottom) {
                 Capsule()
-                    .fill(statusColor.opacity(0.14))
+                    .fill(AppColors.calorie.opacity(0.12))
                     .frame(width: barWidth, height: barHeight)
 
                 Capsule()
-                    .fill(LinearGradient(colors: statusGradient, startPoint: .bottom, endPoint: .top))
+                    .fill(LinearGradient(colors: gradient, startPoint: .bottom, endPoint: .top))
                     .frame(width: barWidth, height: max(barWidth, barHeight * shownProgress))
-                    .shadow(color: statusColor.opacity(0.35), radius: 5)
+                    .shadow(color: (gradient.first ?? AppColors.calorie).opacity(0.4), radius: 5)
             }
 
             VStack(spacing: 1) {
@@ -753,7 +722,7 @@ struct MacroVerticalBar: View {
                     .foregroundStyle(.primary)
                 Text(statusText)
                     .font(.system(.caption2, design: .rounded, weight: .medium))
-                    .foregroundStyle(statusColor)
+                    .foregroundStyle(current > goal && goal > 0 ? AppColors.calorie : .secondary)
             }
             .lineLimit(1)
             .minimumScaleFactor(0.6)
