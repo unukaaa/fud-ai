@@ -4,7 +4,7 @@ import Foundation
 struct LogFoodIntent: AppIntent {
     static let title: LocalizedStringResource = "Log Food"
     static let description = IntentDescription(
-        "Log a food entry in Fud AI by describing what you ate.",
+        "Log a food entry in Food AI by describing what you ate.",
         categoryName: "Nutrition"
     )
     static let openAppWhenRun = false
@@ -62,7 +62,7 @@ struct CalorieSummaryIntent: AppIntent {
 struct LogWeightIntent: AppIntent {
     static let title: LocalizedStringResource = "Log Weight"
     static let description = IntentDescription(
-        "Log your current weight in Fud AI.",
+        "Log your current weight in Food AI.",
         categoryName: "Body Metrics"
     )
     static let openAppWhenRun = false
@@ -99,21 +99,21 @@ private func performQuickAction(slot: Int) -> some IntentResult {
 
 struct QuickActionOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Quick Action 1"
-    static let description = IntentDescription("Open your first configurable Fud AI quick action.")
+    static let description = IntentDescription("Open your first configurable Food AI quick action.")
     static let openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult { performQuickAction(slot: 0) }
 }
 
 struct QuickActionTwoIntent: AppIntent {
     static let title: LocalizedStringResource = "Quick Action 2"
-    static let description = IntentDescription("Open your second configurable Fud AI quick action.")
+    static let description = IntentDescription("Open your second configurable Food AI quick action.")
     static let openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult { performQuickAction(slot: 1) }
 }
 
 struct QuickActionThreeIntent: AppIntent {
     static let title: LocalizedStringResource = "Quick Action 3"
-    static let description = IntentDescription("Open your third configurable Fud AI quick action.")
+    static let description = IntentDescription("Open your third configurable Food AI quick action.")
     static let openAppWhenRun = true
     @MainActor func perform() async throws -> some IntentResult { performQuickAction(slot: 2) }
 }
@@ -123,7 +123,9 @@ struct FudAIShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: LogFoodIntent(),
             phrases: [
+                "Log food with \(.applicationName)",
                 "Log food in \(.applicationName)",
+                "Use \(.applicationName) to log food",
                 "Add food in \(.applicationName)",
                 "Track food in \(.applicationName)",
             ],

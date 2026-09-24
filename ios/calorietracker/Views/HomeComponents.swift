@@ -581,6 +581,10 @@ struct CalorieGauge: View {
         return "Goal reached"
     }
 
+    private var statusColor: Color {
+        eaten > goal && goal > 0 ? .red : .green
+    }
+
     private var dashedStroke: StrokeStyle {
         StrokeStyle(lineWidth: lineWidth, lineCap: .butt, dash: [4, 6])
     }
@@ -633,7 +637,7 @@ struct CalorieGauge: View {
                     Text(statusText)
                         .font(.system(.footnote, design: .rounded, weight: .semibold))
                 }
-                .foregroundStyle(AppColors.calorie)
+                .foregroundStyle(statusColor)
 
                 if let burnLine {
                     Text(burnLine)

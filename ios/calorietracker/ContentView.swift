@@ -2711,26 +2711,28 @@ private struct SiriPhrasesSettingsView: View {
             title: "Log Food",
             icon: "fork.knife",
             phrases: [
-                "Log food in Fud AI",
-                "Add food in Fud AI",
-                "Track food in Fud AI",
+                "Log food with Food AI",
+                "Log food in Food AI",
+                "Use Food AI to log food",
+                "Add food in Food AI",
+                "Track food in Food AI",
             ]
         ),
         SiriPhraseGroup(
             title: "Today's Calories",
             icon: "chart.bar.fill",
             phrases: [
-                "Calories today in Fud AI",
-                "How many calories in Fud AI",
-                "Today's nutrition in Fud AI",
+                "Calories today in Food AI",
+                "How many calories in Food AI",
+                "Today's nutrition in Food AI",
             ]
         ),
         SiriPhraseGroup(
             title: "Log Weight",
             icon: "scalemass.fill",
             phrases: [
-                "Log my weight in Fud AI",
-                "Record weight in Fud AI",
+                "Log my weight in Food AI",
+                "Record weight in Food AI",
             ]
         ),
     ]
@@ -2739,7 +2741,7 @@ private struct SiriPhrasesSettingsView: View {
         List {
             Section {
                 Label {
-                    Text("Say these phrases to Siri to use Fud AI hands-free.")
+                    Text("Say these phrases to Siri to use Food AI hands-free.")
                         .foregroundStyle(.secondary)
                 } icon: {
                     Image(systemName: "waveform.circle.fill")
