@@ -238,18 +238,11 @@ struct GeminiService {
         return try await runWithHostedQuota(.whatIf) {
         let current = macroTotals(for: dayEntries)
         let meal = macroTotals(for: entry)
-        let after = current + meal
         let goals = MacroTotals(
             calories: profile.effectiveCalories,
             protein: Double(profile.effectiveProtein),
             carbs: Double(profile.effectiveCarbs),
             fat: Double(profile.effectiveFat)
-        )
-        let remaining = MacroTotals(
-            calories: goals.calories - after.calories,
-            protein: goals.protein - after.protein,
-            carbs: goals.carbs - after.carbs,
-            fat: goals.fat - after.fat
         )
         var portionLimits: [Double] = [1]
         let caloriesAvailable = max(goals.calories - current.calories, 0)
@@ -264,58 +257,59 @@ struct GeminiService {
         let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), 1)
         let suggestedCalories = Int((Double(meal.calories) * suggestedFraction).rounded())
         let maximumCalories = Int((Double(meal.calories) * maximumFraction).rounded())
-        let existingMeals = dayEntries.isEmpty
-            ? "No meals logged yet for this day."
-            : dayEntries
-                .prefix(12)
-                .map { "- \($0.name): \($0.calories) kcal, \(formatGrams($0.protein))g protein, \(formatGrams($0.carbs))g carbs, \(formatGrams($0.fat))g fat" }
-                .joined(separator: "\n")
-        let weight = weightMetric
-            ? String(format: "%.1f kg", profile.weightKg)
-            : String(format: "%.1f lb", profile.weightKg * 2.20462)
-        let bodyFat = profile.bodyFatPercentage.map { "\(Int(($0 * 100).rounded()))%" } ?? "not set"
 
-        let prompt = """
-        You are a concise nutrition coach inside Food AI. The user is reviewing a meal before logging it.
-        Analyze this what-if scenario only. Do not say the meal has already been logged. Do not change the user's goals.
+        // Keep the portion amounts deterministic. Asking the language model to
+        // translate a percentage into a chip/piece count made identical meals
+        // produce different answers (for example, 14 chips and then 22 chips).
+        // We only show a household unit when the analyzed entry already has a
+        // grounded unit and quantity; otherwise describe the photographed share.
+        let genericUnits: Set<String> = ["serving", "portion", "meal"]
+        let selectedUnit = entry.selectedServingUnit?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let groundedOption = entry.servingUnitOptions.first { option in
+            option.isValid &&
+                !option.isGramUnit &&
+                !genericUnits.contains(option.normalizedUnit) &&
+                option.quantity(for: entry.servingSizeGrams ?? 0) > 0
+        }
 
-        Return exactly 2 short plain-English lines, no markdown and no bullets, with 45 words maximum total.
-        Line 1 must begin "Suggested:" and give a comfortable portion for each component, ending with "~\(suggestedCalories) cals".
-        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits, ending with "~\(maximumCalories) cals".
-        Use everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
-        Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
-        Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
-        Base Suggested on approximately \(Int((suggestedFraction * 100).rounded()))% of the photographed meal.
-        Base Maximum on approximately \(Int((maximumFraction * 100).rounded()))% of the photographed meal.
-        Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
+        let portionDescription: (Double, Bool) -> String = { fraction, isMaximum in
+            if let option = groundedOption {
+                let wholeQuantity: Double
+                if selectedUnit == option.normalizedUnit,
+                   let selectedQuantity = entry.selectedServingQuantity,
+                   selectedQuantity.isFinite,
+                   selectedQuantity > 0 {
+                    wholeQuantity = selectedQuantity
+                } else {
+                    wholeQuantity = option.quantity(for: entry.servingSizeGrams ?? 0)
+                }
+                let scaledQuantity = wholeQuantity * fraction
+                let countableUnits: Set<String> = [
+                    "chip", "chips", "biscuit", "biscuits", "slice", "slices",
+                    "piece", "pieces", "wing", "wings", "cracker", "crackers"
+                ]
+                let displayedQuantity: String
+                if countableUnits.contains(option.normalizedUnit) {
+                    displayedQuantity = String(Int(scaledQuantity.rounded()))
+                } else if abs(scaledQuantity.rounded() - scaledQuantity) < 0.05 {
+                    displayedQuantity = String(Int(scaledQuantity.rounded()))
+                } else {
+                    displayedQuantity = String(format: "%.1f", scaledQuantity)
+                }
+                return "about \(displayedQuantity) \(option.displayUnit(for: scaledQuantity))"
+            }
 
-        User:
-        - Goal: \(profile.goal.displayName)
-        - Activity: \(profile.activityLevel.displayName)
-        - Weight: \(weight)
-        - Body fat: \(bodyFat)
+            if isMaximum && fraction >= 0.995 {
+                return "the full photographed portion"
+            }
+            return "about \(Int((fraction * 100).rounded()))% of the photographed portion"
+        }
 
-        Daily targets:
-        \(macroLine(goals))
-
-        Already logged today:
-        \(macroLine(current))
-
-        Meal being reviewed:
-        - \(entry.name): \(macroLine(meal))
-
-        If logged, daily total becomes:
-        \(macroLine(after))
-
-        Remaining after logging (negative means over target):
-        \(macroLine(remaining))
-
-        Existing meals today:
-        \(existingMeals)
-        """
-
-        let text = try await callAI(prompt: prompt, image: nil, jsonResponse: false)
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suggestedDescription = portionDescription(suggestedFraction, false)
+        let maximumDescription = portionDescription(maximumFraction, true)
+        return "Suggested: \(suggestedDescription) ~\(suggestedCalories) cals\nMaximum: \(maximumDescription) ~\(maximumCalories) cals"
         }
     }
 
