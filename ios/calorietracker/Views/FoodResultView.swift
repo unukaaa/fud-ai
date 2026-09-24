@@ -662,7 +662,8 @@ struct FoodResultView: View {
                         entry: makeFoodEntry(includeImage: false),
                         dayEntries: whatIfDayEntries,
                         profile: profile,
-                        weightMetric: weightMetric
+                        weightMetric: weightMetric,
+                        onApplyPortion: applySuggestedPortion
                     )
                 }
                 .sheet(item: $ingredientEditor) { target in
@@ -705,6 +706,13 @@ struct FoodResultView: View {
         let entry = makeFoodEntry(includeImage: true)
         onLog(entry)
         dismiss()
+    }
+
+    private func applySuggestedPortion(_ fraction: Double) {
+        let safeFraction = min(max(fraction, 0.05), 1)
+        let updatedAmount = max(servingSizeGrams * safeFraction, 1)
+        servingSizeGrams = updatedAmount
+        servingSizeText = Self.formatGrams(selectedServingOption.quantity(for: updatedAmount))
     }
 
     private func makeFoodEntry(includeImage: Bool) -> FoodEntry {
@@ -984,6 +992,7 @@ private struct WhatIfMealImpactSheet: View {
     let dayEntries: [FoodEntry]
     let profile: UserProfile
     let weightMetric: Bool
+    let onApplyPortion: (Double) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var isLoadingSuggestion = true
@@ -1009,6 +1018,23 @@ private struct WhatIfMealImpactSheet: View {
             carbs: Double(profile.effectiveCarbs),
             fat: Double(profile.effectiveFat)
         )
+    }
+
+    private var suggestedFraction: Double {
+        var limits: [Double] = [1]
+        let caloriesAvailable = max(goals.calories - currentTotals.calories, 0)
+        if mealTotals.calories > 0 {
+            limits.append(Double(caloriesAvailable) * 0.9 / Double(mealTotals.calories))
+        }
+        let carbsAvailable = max(goals.carbs - currentTotals.carbs, 0)
+        if mealTotals.carbs > 0 {
+            limits.append(carbsAvailable * 0.95 / mealTotals.carbs)
+        }
+        let fatAvailable = max(goals.fat - currentTotals.fat, 0)
+        if mealTotals.fat > 0 {
+            limits.append(fatAvailable * 0.95 / mealTotals.fat)
+        }
+        return min(max(limits.min() ?? 1, 0.05), 1)
     }
 
     private var suggestionTaskID: String {
@@ -1081,6 +1107,18 @@ private struct WhatIfMealImpactSheet: View {
                             .font(.body)
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
+
+                        if suggestedFraction < 0.99 {
+                            Button {
+                                onApplyPortion(suggestedFraction)
+                                dismiss()
+                            } label: {
+                                Label("Use Suggested Portion", systemImage: "checkmark.circle.fill")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(AppColors.calorie)
+                        }
                     } else if let suggestionError {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(suggestionError)

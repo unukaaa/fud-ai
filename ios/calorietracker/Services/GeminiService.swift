@@ -251,6 +251,16 @@ struct GeminiService {
             carbs: goals.carbs - after.carbs,
             fat: goals.fat - after.fat
         )
+        var portionLimits: [Double] = [1]
+        let caloriesAvailable = max(goals.calories - current.calories, 0)
+        if meal.calories > 0 {
+            portionLimits.append(Double(caloriesAvailable) * 0.9 / Double(meal.calories))
+        }
+        let carbsAvailable = max(goals.carbs - current.carbs, 0)
+        if meal.carbs > 0 { portionLimits.append(carbsAvailable * 0.95 / meal.carbs) }
+        let fatAvailable = max(goals.fat - current.fat, 0)
+        if meal.fat > 0 { portionLimits.append(fatAvailable * 0.95 / meal.fat) }
+        let suggestedFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
         let existingMeals = dayEntries.isEmpty
             ? "No meals logged yet for this day."
             : dayEntries
@@ -271,6 +281,7 @@ struct GeminiService {
         Sentence 2: recommend a practical portion for each visible or named component using everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
         Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
         Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
+        Base every recommended component amount on approximately (Int((suggestedFraction * 100).rounded()))% of the photographed meal, because that is the portion the app can apply when the user taps the button.
         Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
 
         User:
