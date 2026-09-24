@@ -252,18 +252,29 @@ struct GeminiService {
             carbs: Double(profile.effectiveCarbs),
             fat: Double(profile.effectiveFat)
         )
-        var portionLimits: [Double] = [1]
-        let caloriesAvailable = max(goals.calories - current.calories, 0)
-        if meal.calories > 0 {
-            portionLimits.append(Double(caloriesAvailable) / Double(meal.calories))
-        }
-        let carbsAvailable = max(goals.carbs - current.carbs, 0)
-        if meal.carbs > 0 { portionLimits.append(carbsAvailable / meal.carbs) }
-        let fatAvailable = max(goals.fat - current.fat, 0)
-        if meal.fat > 0 { portionLimits.append(fatAvailable / meal.fat) }
-        let maximumFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
         let normalizedName = entry.name.lowercased()
+        let isMixedMeal = entry.ingredients.count > 1 || normalizedName.contains(" & ")
+        let inferredGramsPerPiece: Double? = {
+            guard !isMixedMeal else { return nil }
+            if normalizedName.contains("wafer roll") { return 10 }
+            return nil
+        }()
+        let caloriesAvailable = max(goals.calories - current.calories, 0)
+        // Calories are the hard portion ceiling. Carbs and fat remain visible
+        // as warnings above, but an already-exceeded macro must not collapse an
+        // otherwise reasonable serving into a meaningless 5% suggestion.
+        let rawMaximumFraction = meal.calories > 0
+            ? min(max(Double(caloriesAvailable) / Double(meal.calories), 0), 1)
+            : 1
+        let maximumFraction: Double = {
+            guard let totalGrams = entry.servingSizeGrams,
+                  let gramsPerPiece = inferredGramsPerPiece,
+                  totalGrams > 0 else { return rawMaximumFraction }
+            let wholePiecesThatFit = floor(totalGrams * rawMaximumFraction / gramsPerPiece)
+            return min(max(wholePiecesThatFit * gramsPerPiece / totalGrams, 0), 1)
+        }()
         let comfortableServingGrams: Double? = {
+            if normalizedName.contains("wafer roll") && !isMixedMeal { return 30 }
             if normalizedName.contains("popcorn") { return 25 }
             if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 30 }
             if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
@@ -273,7 +284,17 @@ struct GeminiService {
         let comfortableFraction = comfortableServingGrams.flatMap { grams in
             entry.servingSizeGrams.map { min(max(grams / $0, 0.05), 1) }
         } ?? 1
-        let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), comfortableFraction)
+        let minimumUsefulFraction = inferredGramsPerPiece.flatMap { grams in
+            entry.servingSizeGrams.map { min(max(grams / $0, 0.01), 1) }
+        } ?? 0.05
+        let rawSuggestedFraction = min(max(maximumFraction * 0.9, minimumUsefulFraction), comfortableFraction)
+        let suggestedFraction: Double = {
+            guard let totalGrams = entry.servingSizeGrams,
+                  let gramsPerPiece = inferredGramsPerPiece,
+                  totalGrams > 0 else { return rawSuggestedFraction }
+            let pieces = max((totalGrams * rawSuggestedFraction / gramsPerPiece).rounded(), 1)
+            return min(pieces * gramsPerPiece / totalGrams, 1)
+        }()
         let suggestedCalories = Int((Double(meal.calories) * suggestedFraction).rounded())
         let maximumCalories = Int((Double(meal.calories) * maximumFraction).rounded())
 
@@ -311,6 +332,17 @@ struct GeminiService {
         }
 
         let portionDescription: (Double, Bool) -> String = { fraction, isMaximum in
+            if isMaximum && fraction <= 0.0001 {
+                return "none fits today's remaining calories"
+            }
+
+            if let totalGrams = entry.servingSizeGrams,
+               let gramsPerPiece = inferredGramsPerPiece,
+               totalGrams > 0 {
+                let pieces = max(Int((totalGrams * fraction / gramsPerPiece).rounded()), 1)
+                return "about \(pieces) \(pieces == 1 ? "wafer roll" : "wafer rolls")"
+            }
+
             if let option = groundedOption {
                 let wholeQuantity: Double
                 if selectedUnit == option.normalizedUnit,
@@ -348,7 +380,13 @@ struct GeminiService {
             if isMaximum && fraction >= 0.995 {
                 return "the full photographed portion"
             }
-            return "about \(Int((fraction * 100).rounded()))% of the photographed portion"
+            if fraction >= 0.875 { return "nearly all of the photographed portion" }
+            if fraction >= 0.70 { return "about three-quarters of the photographed portion" }
+            if fraction >= 0.58 { return "about two-thirds of the photographed portion" }
+            if fraction >= 0.45 { return "about half of the photographed portion" }
+            if fraction >= 0.29 { return "about one-third of the photographed portion" }
+            if fraction >= 0.20 { return "about one-quarter of the photographed portion" }
+            return "a small taste of the photographed portion"
         }
 
         let suggestedDescription = portionDescription(suggestedFraction, false)
