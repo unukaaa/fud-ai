@@ -475,6 +475,125 @@ struct HomeNutrientPickerSheet: View {
 
 // MARK: - Macro Card
 
+/// A calm, glanceable summary that prioritizes the two daily decisions that matter most:
+/// calories remaining and protein remaining. Carbs and fat stay available without competing.
+struct NutritionSummaryCard: View {
+    let calories: Int
+    let calorieGoal: Int
+    let protein: Double
+    let proteinGoal: Double
+    let carbs: Double
+    let carbsGoal: Double
+    let fat: Double
+    let fatGoal: Double
+    var burnLine: String? = nil
+    var launchFillEpoch: Int = 0
+
+    private var calorieRemaining: Int { calorieGoal - calories }
+    private var proteinRemaining: Double { proteinGoal - protein }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("TODAY")
+                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .tracking(0.8)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(calories.formatted()) / \(calorieGoal.formatted()) kcal")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(calorieStatusValue)
+                    .font(.system(size: 46, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText())
+                Text(calorieStatusLabel)
+                    .font(.system(.headline, design: .rounded, weight: .medium))
+                    .foregroundStyle(calorieRemaining >= 0 ? .secondary : AppColors.calorie)
+            }
+
+            ProgressView(value: progress(calories, goal: calorieGoal))
+                .tint(AppColors.calorie)
+                .scaleEffect(x: 1, y: 1.7, anchor: .center)
+
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label("Protein", systemImage: "bolt.fill")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                    Spacer()
+                    Text("\(MacroValueFormatter.string(protein)) / \(MacroValueFormatter.string(proteinGoal))g")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                }
+                .foregroundStyle(AppColors.protein)
+
+                ProgressView(value: progress(protein, goal: proteinGoal))
+                    .tint(AppColors.protein)
+
+                Text(proteinStatus)
+                    .font(.system(.caption, design: .rounded, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                compactMacro(label: "Carbs", current: carbs, goal: carbsGoal, color: AppColors.carbs)
+                Divider().frame(height: 32)
+                compactMacro(label: "Fat", current: fat, goal: fatGoal, color: AppColors.fat)
+            }
+
+            if let burnLine {
+                Label(burnLine, systemImage: "flame.fill")
+                    .font(.system(.caption, design: .rounded, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(20)
+        .background(AppColors.appCard, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.primary.opacity(0.06), lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var calorieStatusValue: String {
+        abs(calorieRemaining).formatted()
+    }
+
+    private var calorieStatusLabel: String {
+        calorieRemaining >= 0 ? "calories remaining" : "calories over"
+    }
+
+    private var proteinStatus: String {
+        let amount = MacroValueFormatter.string(abs(proteinRemaining))
+        return proteinRemaining >= 0 ? "\(amount)g protein remaining" : "\(amount)g over protein goal"
+    }
+
+    private func progress<T: BinaryInteger>(_ current: T, goal: T) -> Double {
+        guard goal > 0 else { return 0 }
+        return min(Double(current) / Double(goal), 1)
+    }
+
+    private func progress(_ current: Double, goal: Double) -> Double {
+        guard goal > 0 else { return 0 }
+        return min(current / goal, 1)
+    }
+
+    private func compactMacro(label: String, current: Double, goal: Double, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("\(MacroValueFormatter.string(current)) / \(MacroValueFormatter.string(goal))g")
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct MacroCard: View {
     let label: String
     let current: Double

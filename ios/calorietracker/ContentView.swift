@@ -1102,6 +1102,9 @@ struct HomeView: View {
     private var carbsGoal: Int { userProfile.effectiveCarbs }
     private var fatGoal: Int { userProfile.effectiveFat }
     private var selectedCalories: Int { foodStore.calories(for: selectedDate) }
+    private var selectedProtein: Double { foodStore.protein(for: selectedDate) }
+    private var selectedCarbs: Double { foodStore.carbs(for: selectedDate) }
+    private var selectedFat: Double { foodStore.fat(for: selectedDate) }
     private var isToday: Bool { Calendar.current.isDateInToday(selectedDate) }
     private var foodLogSortOrder: FoodLogSortOrder { FoodLogSortOrder.order(for: foodLogSortOrderRaw) }
     private var homeTopNutrients: [HomeTopNutrient] { HomeTopNutrient.selection(from: homeTopNutrientsRaw) }
@@ -1368,18 +1371,22 @@ private var dailyStepsTaskKey: String {
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                 }
 
-                // Nutrition summary. Keeping the dome, macros, water and detail affordance in
-                // one section removes an unhelpful List section gap and matches Android's
-                // compact top-region hierarchy.
+                // Nutrition summary. Calories and protein are deliberately dominant: they are
+                // the two numbers most people need to act on throughout the day.
                 Section {
-                    CalorieGauge(
-                        eaten: selectedCalories,
-                        goal: calorieGoal,
+                    NutritionSummaryCard(
+                        calories: selectedCalories,
+                        calorieGoal: calorieGoal,
+                        protein: selectedProtein,
+                        proteinGoal: Double(proteinGoal),
+                        carbs: selectedCarbs,
+                        carbsGoal: Double(carbsGoal),
+                        fat: selectedFat,
+                        fatGoal: Double(fatGoal),
                         burnLine: homeBurnLine,
                         launchFillEpoch: launchFillEpoch
                     )
                         .frame(maxWidth: .infinity)
-                        .padding(.top, -8)
                         .contentShape(Rectangle())
                         .simultaneousGesture(daySwipeGesture)
                         .listRowBackground(Color.clear)
@@ -1393,36 +1400,6 @@ private var dailyStepsTaskKey: String {
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                     }
-
-                    HStack(alignment: .top, spacing: 4) {
-                        ForEach(displayedHomeNutrients) { nutrient in
-                            MacroVerticalBar(
-                                label: nutrient.displayName,
-                                current: nutrient.value(from: foodStore, on: selectedDate),
-                                goal: nutrient.goal(for: userProfile, optionalGoals: optionalNutrientGoals),
-                                unit: nutrient.unit,
-                                gradient: nutrient.gradientColors,
-                                launchFillEpoch: launchFillEpoch
-                            )
-                        }
-                        if waterTrackingEnabled {
-                            MacroVerticalBar(
-                                label: "Water",
-                                current: waterUnit.displayAmount(
-                                    forMilliliters: waterStore.total(on: selectedDate)
-                                ),
-                                goal: waterUnit.displayAmount(forMilliliters: waterDailyGoal),
-                                unit: waterPillarUnit,
-                                gradient: AppColors.calorieGradient,
-                                launchFillEpoch: launchFillEpoch
-                            )
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .contentShape(Rectangle())
-                    .simultaneousGesture(daySwipeGesture)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
 
                     Button {
                         showNutritionDetail = true
@@ -1681,11 +1658,13 @@ private var dailyStepsTaskKey: String {
                         configuredFoodAddMenuContent
                     }
                 } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 26, weight: .semibold))
+                            Label("Log Food", systemImage: "plus")
+                                .font(.system(.headline, design: .rounded, weight: .semibold))
                                 .foregroundStyle(.white)
-                                .frame(width: 60, height: 60)
-                                .background(AppColors.calorie, in: Circle())
+                                .padding(.horizontal, 20)
+                                .frame(height: 56)
+                                .background(AppColors.calorie, in: Capsule())
+                                .shadow(color: AppColors.calorie.opacity(0.28), radius: 10, y: 5)
                         }
                         .accessibilityIdentifier("home.add")
                         .opacity(isFoodSelectionMode ? 0 : 1)
