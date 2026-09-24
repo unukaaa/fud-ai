@@ -280,13 +280,13 @@ struct GeminiService {
         Analyze this what-if scenario only. Do not say the meal has already been logged. Do not change the user's goals.
 
         Return exactly 2 short plain-English lines, no markdown and no bullets, with 45 words maximum total.
-        Line 1 must begin "Suggested:" and give a comfortable portion for each component, ending with "~(suggestedCalories) kcal".
-        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits, ending with "~(maximumCalories) kcal".
+        Line 1 must begin "Suggested:" and give a comfortable portion for each component, ending with "~\(suggestedCalories) cals".
+        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits, ending with "~\(maximumCalories) cals".
         Use everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
         Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
         Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
-        Base Suggested on approximately (Int((suggestedFraction * 100).rounded()))% of the photographed meal.
-        Base Maximum on approximately (Int((maximumFraction * 100).rounded()))% of the photographed meal.
+        Base Suggested on approximately \(Int((suggestedFraction * 100).rounded()))% of the photographed meal.
+        Base Maximum on approximately \(Int((maximumFraction * 100).rounded()))% of the photographed meal.
         Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
 
         User:

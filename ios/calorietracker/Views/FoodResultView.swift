@@ -498,7 +498,7 @@ struct FoodResultView: View {
                             label: "Calories",
                             displayValue: "\(scaledCalories)",
                             editValue: "\(scaledCalories)",
-                            unit: "kcal",
+                            unit: "cals",
                             isUnlocked: nutritionUnlocked,
                             onEdit: updateBaseCalories
                         )
@@ -809,7 +809,7 @@ struct MealIngredientsSection: View {
                                     .font(.system(.body, design: .rounded, weight: .semibold))
                                     .foregroundStyle(.primary)
                                 Spacer()
-                                Text("\(MacroValueFormatter.string(ingredient.grams))g · \(ingredient.calories) kcal")
+                                Text("\(MacroValueFormatter.string(ingredient.grams))g · \(ingredient.calories) cals")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                 Image(systemName: "chevron.right")
@@ -910,7 +910,7 @@ struct IngredientEditorSheet: View {
                 Section("Ingredient") {
                     TextField("Name", text: $name)
                     valueRow("Weight", text: Binding(get: { grams }, set: changeWeight), unit: "g")
-                    valueRow("Calories", text: nutritionBinding($calories), unit: "kcal")
+                    valueRow("Calories", text: nutritionBinding($calories), unit: "cals")
                 }
                 Section("Macros") {
                     valueRow("Protein", text: nutritionBinding($protein), unit: "g")
@@ -1072,8 +1072,8 @@ private struct WhatIfMealImpactSheet: View {
                 Section {
                     WhatIfImpactRow(
                         label: "Calories",
-                        added: "+\(entry.calories) kcal",
-                        after: "\(afterTotals.calories) / \(goals.calories) kcal",
+                        added: "+\(entry.calories) cals",
+                        after: "\(afterTotals.calories) / \(goals.calories) cals",
                         remaining: remainingCaloriesText,
                         isOver: afterTotals.calories > goals.calories,
                         tint: limitStatusColor(current: Double(afterTotals.calories), goal: Double(goals.calories))
@@ -1126,7 +1126,7 @@ private struct WhatIfMealImpactSheet: View {
                             onApplyPortion(suggestedFraction)
                             dismiss()
                         } label: {
-                            Label("Use Suggested · \(suggestedCalories) kcal", systemImage: "checkmark.circle.fill")
+                            Label("Use Suggested · \(suggestedCalories) cals", systemImage: "checkmark.circle.fill")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
@@ -1136,7 +1136,7 @@ private struct WhatIfMealImpactSheet: View {
                             onApplyPortion(maximumFraction)
                             dismiss()
                         } label: {
-                            Label("Use Maximum · \(maximumCalories) kcal", systemImage: "gauge.with.dots.needle.67percent")
+                            Label("Use Maximum · \(maximumCalories) cals", systemImage: "gauge.with.dots.needle.67percent")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -1174,9 +1174,9 @@ private struct WhatIfMealImpactSheet: View {
     private var remainingCaloriesText: String {
         let remaining = goals.calories - afterTotals.calories
         if remaining >= 0 {
-            return "\(remaining) kcal left"
+            return "\(remaining) cals left"
         }
-        return "\(abs(remaining)) kcal over"
+        return "\(abs(remaining)) cals over"
     }
 
     private func remainingMacroText(_ value: Double, goal: Double) -> String {
