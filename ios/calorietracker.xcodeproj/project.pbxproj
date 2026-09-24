@@ -7,9 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BA8E0E2D2F33F198007DD537 /* FudAIWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BA8E0E272F33F198007DD537 /* FudAIWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		BA8E0E382F33F198007DD537 /* calorietrackerShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = BA8E0E372F33F198007DD537 /* calorietrackerShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		F00D10000000000000000001 /* FudAIWatchApp.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = F00D10000000000000000007 /* FudAIWatchApp.app */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F00D10000000000000000002 /* FudAIWatchWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F00D10000000000000000008 /* FudAIWatchWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F00DAD000000000000000011 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = F00DAD000000000000000013 /* RevenueCat */; };
 		F00D57000000000000000011 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = F00D57000000000000000013 /* WhisperKit */; };
@@ -33,27 +30,6 @@
 			remoteGlobalIDString = BA8E0DF22F33F197007DD537;
 			remoteInfo = calorietracker;
 		};
-		BA8E0E2F2F33F198007DD537 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = BA8E0DEB2F33F197007DD537 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = BA8E0E282F33F198007DD537;
-			remoteInfo = FudAIWidgetsExtension;
-		};
-		BA8E0E3C2F33F198007DD537 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = BA8E0DEB2F33F197007DD537 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = BA8E0E392F33F198007DD537;
-			remoteInfo = calorietrackerShare;
-		};
-		F00D10000000000000000003 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = BA8E0DEB2F33F197007DD537 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = F00D1000000000000000000F;
-			remoteInfo = FudAIWatchApp;
-		};
 		F00D10000000000000000004 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = BA8E0DEB2F33F197007DD537 /* Project object */;
@@ -70,8 +46,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				BA8E0E2D2F33F198007DD537 /* FudAIWidgetsExtension.appex in Embed Foundation Extensions */,
-				BA8E0E382F33F198007DD537 /* calorietrackerShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -82,7 +56,6 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
-				F00D10000000000000000001 /* FudAIWatchApp.app in Embed Watch Content */,
 			);
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -307,9 +280,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				BA8E0E2E2F33F198007DD537 /* PBXTargetDependency */,
-				BA8E0E3D2F33F198007DD537 /* PBXTargetDependency */,
-				F00D10000000000000000015 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				BA8E0DF52F33F197007DD537 /* calorietracker */,
@@ -705,22 +675,6 @@
 			target = BA8E0DF22F33F197007DD537 /* calorietracker */;
 			targetProxy = BA8E0E122F33F198007DD537 /* PBXContainerItemProxy */;
 		};
-		BA8E0E2E2F33F198007DD537 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = BA8E0E282F33F198007DD537 /* FudAIWidgetsExtension */;
-			targetProxy = BA8E0E2F2F33F198007DD537 /* PBXContainerItemProxy */;
-		};
-		BA8E0E3D2F33F198007DD537 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = BA8E0E392F33F198007DD537 /* calorietrackerShare */;
-			targetProxy = BA8E0E3C2F33F198007DD537 /* PBXContainerItemProxy */;
-		};
-		F00D10000000000000000015 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			platformFilter = ios;
-			target = F00D1000000000000000000F /* FudAIWatchApp */;
-			targetProxy = F00D10000000000000000003 /* PBXContainerItemProxy */;
-		};
 		F00D10000000000000000016 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = F00D10000000000000000010 /* FudAIWatchWidgetsExtension */;
@@ -742,7 +696,7 @@
 				CODE_SIGN_ENTITLEMENTS = calorietracker/calorietracker.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 38;
-				DEVELOPMENT_TEAM = 23RV7FYH36;
+				DEVELOPMENT_TEAM = B5C6HQV3BZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -767,7 +721,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 7.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.apoorvdarshan.calorietracker.debug;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brandonunuka.fudai;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -796,7 +750,7 @@
 				CODE_SIGN_ENTITLEMENTS = calorietracker/calorietracker.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 38;
-				DEVELOPMENT_TEAM = 23RV7FYH36;
+				DEVELOPMENT_TEAM = B5C6HQV3BZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -821,7 +775,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 7.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.apoorvdarshan.calorietracker;
+				PRODUCT_BUNDLE_IDENTIFIER = com.brandonunuka.fudai.release;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
