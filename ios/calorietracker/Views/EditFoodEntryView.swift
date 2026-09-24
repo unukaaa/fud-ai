@@ -53,6 +53,12 @@ struct EditFoodEntryView: View {
     @State private var isDeleteConfirmationPresented = false
     @State private var removedPhotoIDs = Set<FoodEntryPhoto.ID>()
     @State private var imagePreview: FullScreenImagePreview?
+    @State private var showLeftoverCamera = false
+    @State private var leftoverImage: UIImage?
+    @State private var leftoverEstimate: GeminiService.LeftoverEstimate?
+    @State private var showLeftoverReview = false
+    @State private var isEstimatingLeftovers = false
+    @State private var leftoverError: String?
 
     @State private var name: String
     @State private var servingSizeGrams: Double
@@ -266,84 +272,7 @@ struct EditFoodEntryView: View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
                 List {
-                    let photos = visiblePhotos
-                    if !photos.isEmpty {
-                        Section {
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                LazyHStack(spacing: 12) {
-                                    ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                                        Group {
-                                            if let image = photo.data.flatMap(UIImage.init(data:)) {
-                                                Image(uiImage: image)
-                                                    .resizable()
-                                                    .scaledToFill()
-                                            } else {
-                                                Image(systemName: "photo")
-                                                    .font(.largeTitle)
-                                                    .foregroundStyle(.secondary)
-                                            }
-                                        }
-                                        .frame(width: 220, height: 200)
-                                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                        .onTapGesture {
-                                            let previewItems = photos.compactMap { photo -> (FoodEntryPhoto.ID, UIImage)? in
-                                                guard let image = photo.data.flatMap(UIImage.init(data:)) else { return nil }
-                                                return (photo.id, image)
-                                            }
-                                            guard !previewItems.isEmpty else { return }
-                                            let initialIndex = previewItems.firstIndex(where: { $0.0 == photo.id }) ?? 0
-                                            imagePreview = FullScreenImagePreview(
-                                                images: previewItems.map(\.1),
-                                                initialIndex: initialIndex
-                                            )
-                                        }
-                                        .accessibilityAddTraits(.isButton)
-                                        .accessibilityLabel("View full photo")
-                                        .overlay(alignment: .topTrailing) {
-                                            Button {
-                                                removedPhotoIDs.insert(photo.id)
-                                            } label: {
-                                                Image(systemName: "xmark")
-                                                    .font(.system(size: 14, weight: .bold))
-                                                    .foregroundStyle(.white)
-                                                    .frame(width: 32, height: 32)
-                                                    .background(.black.opacity(0.6), in: Circle())
-                                                    .frame(width: 44, height: 44)
-                                                    .contentShape(Rectangle())
-                                            }
-                                            .buttonStyle(.plain)
-                                            .accessibilityLabel("Remove photo")
-                                            .padding(4)
-                                        }
-                                        .overlay(alignment: .bottomTrailing) {
-                                            if photos.count > 1 {
-                                                Text("\(index + 1)/\(photos.count)")
-                                                    .font(.caption2.weight(.semibold))
-                                                    .padding(.horizontal, 8)
-                                                    .padding(.vertical, 5)
-                                                    .background(.ultraThinMaterial, in: Capsule())
-                                                    .padding(8)
-                                            }
-                                        }
-                                    }
-                                }
-                                .scrollTargetLayout()
-                            }
-                            .scrollTargetBehavior(.viewAligned)
-                            .listRowBackground(Color.clear)
-                        }
-                    } else if let emoji = emoji {
-                        Section {
-                            HStack {
-                                Spacer()
-                                Text(emoji)
-                                    .font(.system(size: 80))
-                                Spacer()
-                            }
-                            .listRowBackground(Color.clear)
-                        }
-                    }
+                    mealPhotoHeader
 
                     Section("Food Details") {
                         HStack {
@@ -415,6 +344,8 @@ struct EditFoodEntryView: View {
                         NutritionDisplayRow(label: "Carbs", value: MacroValueFormatter.string(scaledCarbs), unit: "g")
                         NutritionDisplayRow(label: "Fat", value: MacroValueFormatter.string(scaledFat), unit: "g")
                     }
+
+                    leftoversSection
 
                     MealIngredientsSection(
                         ingredients: scaledIngredients,
@@ -608,6 +539,29 @@ struct EditFoodEntryView: View {
                         }
                     )
                 }
+                .fullScreenCover(isPresented: $showLeftoverCamera, onDismiss: analyzeCapturedLeftovers) {
+                    CameraView(
+                        image: $leftoverImage,
+                        title: "Photograph what is left",
+                        onCancel: { leftoverImage = nil }
+                    )
+                    .ignoresSafeArea()
+                }
+                .sheet(isPresented: $showLeftoverReview) {
+                    if let estimate = leftoverEstimate, let image = leftoverImage {
+                        LeftoverReviewSheet(entry: entry, leftoverImage: image, estimate: estimate) { eatenFraction in
+                            applyLeftoverUpdate(eatenFraction: eatenFraction, leftoverImage: image)
+                        }
+                    }
+                }
+                .alert("Couldn’t Estimate Leftovers", isPresented: Binding(
+                    get: { leftoverError != nil },
+                    set: { if !$0 { leftoverError = nil } }
+                )) {
+                    Button("OK", role: .cancel) { leftoverError = nil }
+                } message: {
+                    Text(leftoverError ?? "Please try another photo.")
+                }
                 .fullScreenImagePreview($imagePreview)
             }
         }
@@ -619,6 +573,201 @@ struct EditFoodEntryView: View {
                 proxy.scrollTo(ScrollTarget.quantity, anchor: .bottom)
             }
         }
+    }
+
+    @ViewBuilder
+    private var mealPhotoHeader: some View {
+        let photos = visiblePhotos
+        if !photos.isEmpty {
+            Section {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                            mealPhoto(photo, index: index, total: photos.count, allPhotos: photos)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .listRowBackground(Color.clear)
+            }
+        } else if let emoji {
+            Section {
+                HStack {
+                    Spacer()
+                    Text(emoji).font(.system(size: 80))
+                    Spacer()
+                }
+                .listRowBackground(Color.clear)
+            }
+        }
+    }
+
+    private var leftoversSection: some View {
+        Section {
+            Button {
+                leftoverImage = nil
+                leftoverEstimate = nil
+                leftoverError = nil
+                showLeftoverCamera = true
+            } label: {
+                Label("Update Leftovers", systemImage: "camera.viewfinder")
+            }
+            .disabled(isEstimatingLeftovers || !entryHasOriginalPhoto)
+
+            if isEstimatingLeftovers {
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Comparing before and after photos…")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !entryHasOriginalPhoto {
+                Text("A before photo is needed to estimate leftovers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("After Eating")
+        } footer: {
+            Text("Food AI estimates how much you ate, then shows the old and new calories before anything changes.")
+        }
+    }
+
+    private func mealPhoto(
+        _ photo: FoodEntryPhoto,
+        index: Int,
+        total: Int,
+        allPhotos: [FoodEntryPhoto]
+    ) -> some View {
+        Group {
+            if let image = photo.data.flatMap(UIImage.init(data:)) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: "photo").font(.largeTitle).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 220, height: 200)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture { showPhotoPreview(photo, from: allPhotos) }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("View full photo")
+        .overlay(alignment: .topTrailing) {
+            Button {
+                removedPhotoIDs.insert(photo.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(.black.opacity(0.6), in: Circle())
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove photo")
+            .padding(4)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if total > 1 {
+                Text("\(index + 1)/\(total)")
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .padding(8)
+            }
+        }
+    }
+
+    private func showPhotoPreview(_ photo: FoodEntryPhoto, from photos: [FoodEntryPhoto]) {
+        let items = photos.compactMap { candidate -> (FoodEntryPhoto.ID, UIImage)? in
+            guard let image = candidate.data.flatMap(UIImage.init(data:)) else { return nil }
+            return (candidate.id, image)
+        }
+        guard !items.isEmpty else { return }
+        let initialIndex = items.firstIndex(where: { $0.0 == photo.id }) ?? 0
+        imagePreview = FullScreenImagePreview(images: items.map(\.1), initialIndex: initialIndex)
+    }
+
+    private var entryHasOriginalPhoto: Bool {
+        entry.imageFilename != nil || entry.imageData != nil ||
+            !entry.additionalImageFilenames.isEmpty || !entry.additionalImageData.isEmpty
+    }
+
+    private func analyzeCapturedLeftovers() {
+        guard let leftoverImage else { return }
+        Task { @MainActor in
+            isEstimatingLeftovers = true
+            leftoverError = nil
+            defer { isEstimatingLeftovers = false }
+
+            let originalImages = await FoodEntryPhotoLoader.viewerImages(for: entry)
+            guard let originalImage = originalImages.first else {
+                leftoverError = "The original meal photo could not be loaded."
+                return
+            }
+
+            do {
+                leftoverEstimate = try await GeminiService.estimateLeftovers(
+                    originalImage: originalImage,
+                    leftoverImage: leftoverImage,
+                    mealName: entry.name
+                )
+                showLeftoverReview = true
+            } catch {
+                leftoverError = GeminiService.analysisErrorMessage(error)
+            }
+        }
+    }
+
+    private func applyLeftoverUpdate(eatenFraction: Double, leftoverImage: UIImage) {
+        let factor = min(max(eatenFraction, 0), 1)
+        func scaled(_ value: Double?) -> Double? {
+            value.map { round($0 * factor * 10) / 10 }
+        }
+
+        var updated = entry
+        updated.calories = Int((Double(entry.calories) * factor).rounded())
+        updated.protein = entry.protein * factor
+        updated.carbs = entry.carbs * factor
+        updated.fat = entry.fat * factor
+        updated.sugar = scaled(entry.sugar)
+        updated.addedSugar = scaled(entry.addedSugar)
+        updated.fiber = scaled(entry.fiber)
+        updated.saturatedFat = scaled(entry.saturatedFat)
+        updated.monounsaturatedFat = scaled(entry.monounsaturatedFat)
+        updated.polyunsaturatedFat = scaled(entry.polyunsaturatedFat)
+        updated.cholesterol = scaled(entry.cholesterol)
+        updated.caffeine = scaled(entry.caffeine)
+        updated.supplementalNutrients = entry.supplementalNutrients.mapValues { round($0 * factor * 10) / 10 }
+        updated.sodium = scaled(entry.sodium)
+        updated.potassium = scaled(entry.potassium)
+        updated.transFat = scaled(entry.transFat)
+        updated.calcium = scaled(entry.calcium)
+        updated.iron = scaled(entry.iron)
+        updated.magnesium = scaled(entry.magnesium)
+        updated.zinc = scaled(entry.zinc)
+        updated.vitaminA = scaled(entry.vitaminA)
+        updated.vitaminC = scaled(entry.vitaminC)
+        updated.vitaminD = scaled(entry.vitaminD)
+        updated.vitaminB12 = scaled(entry.vitaminB12)
+        updated.vitaminE = scaled(entry.vitaminE)
+        updated.vitaminK = scaled(entry.vitaminK)
+        updated.folate = scaled(entry.folate)
+        updated.omega3 = scaled(entry.omega3)
+        updated.servingSizeGrams = entry.servingSizeGrams.map { $0 * factor }
+        updated.selectedServingQuantity = entry.selectedServingQuantity.map { $0 * factor }
+        updated.ingredients = entry.ingredients.map { $0.scaled(by: factor) }
+        if let data = leftoverImage.jpegData(compressionQuality: 0.65) {
+            updated.additionalImageData.append(data)
+        }
+
+        foodStore.updateEntry(updated)
+        showLeftoverReview = false
+        dismiss()
     }
 
     private var noteChanged: Bool {
@@ -754,5 +903,139 @@ struct EditFoodEntryView: View {
         )
         foodStore.updateEntry(updated.removingPhotos(withIDs: removedPhotoIDs))
         dismiss()
+    }
+}
+
+private struct LeftoverReviewSheet: View {
+    let entry: FoodEntry
+    let leftoverImage: UIImage
+    let estimate: GeminiService.LeftoverEstimate
+    let onConfirm: (Double) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var eatenFraction: Double
+
+    init(
+        entry: FoodEntry,
+        leftoverImage: UIImage,
+        estimate: GeminiService.LeftoverEstimate,
+        onConfirm: @escaping (Double) -> Void
+    ) {
+        self.entry = entry
+        self.leftoverImage = leftoverImage
+        self.estimate = estimate
+        self.onConfirm = onConfirm
+        _eatenFraction = State(initialValue: min(max(estimate.eatenFraction, 0), 1))
+    }
+
+    private var adjustedCalories: Int {
+        Int((Double(entry.calories) * eatenFraction).rounded())
+    }
+
+    private var remainingPercent: Int {
+        Int(((1 - eatenFraction) * 100).rounded())
+    }
+
+    private var eatenPercent: Int {
+        Int((eatenFraction * 100).rounded())
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    Image(uiImage: leftoverImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Food AI estimate")
+                            .font(.headline)
+                        Text(estimate.summary)
+                            .foregroundStyle(.secondary)
+                        Text("\(remainingPercent)% remaining · \(eatenPercent)% eaten")
+                            .font(.system(.title3, design: .rounded, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 12) {
+                        comparisonCard(title: "Before", calories: entry.calories, tint: .secondary)
+                        Image(systemName: "arrow.right")
+                            .foregroundStyle(.secondary)
+                        comparisonCard(title: "After", calories: adjustedCalories, tint: AppColors.calorie)
+                    }
+
+                    VStack(spacing: 12) {
+                        Text("How much did you eat?")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(spacing: 8) {
+                            quickButton("¼", fraction: 0.25)
+                            quickButton("½", fraction: 0.5)
+                            quickButton("¾", fraction: 0.75)
+                            quickButton("All", fraction: 1)
+                        }
+
+                        Slider(value: $eatenFraction, in: 0...1, step: 0.05)
+                            .tint(AppColors.calorie)
+                        Text("Adjust this if the photo estimate looks wrong.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(20)
+            }
+            .background(AppColors.appBackground)
+            .navigationTitle("Review Leftovers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Update") { onConfirm(eatenFraction) }
+                        .fontWeight(.semibold)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    onConfirm(eatenFraction)
+                } label: {
+                    Text("Update to \(adjustedCalories) cals")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(AppColors.calorie)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+            }
+        }
+    }
+
+    private func comparisonCard(title: String, calories: Int, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("\(calories) cals")
+                .font(.system(.title3, design: .rounded, weight: .bold))
+                .foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func quickButton(_ label: String, fraction: Double) -> some View {
+        Button(label) { eatenFraction = fraction }
+            .buttonStyle(.bordered)
+            .tint(abs(eatenFraction - fraction) < 0.025 ? AppColors.calorie : .secondary)
+            .frame(maxWidth: .infinity)
     }
 }

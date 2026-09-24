@@ -143,6 +143,14 @@ struct GeminiService {
         var reason: String?
     }
 
+    struct LeftoverEstimate {
+        let remainingFraction: Double
+        let confidence: String
+        let summary: String
+
+        var eatenFraction: Double { 1 - remainingFraction }
+    }
+
     private struct MacroTotals {
         var calories: Int
         var protein: Double
@@ -346,6 +354,45 @@ struct GeminiService {
         let suggestedDescription = portionDescription(suggestedFraction, false)
         let maximumDescription = portionDescription(maximumFraction, true)
         return "Suggested: \(suggestedDescription) ~\(suggestedCalories) cals\nMaximum: \(maximumDescription) ~\(maximumCalories) cals"
+        }
+    }
+
+    static func estimateLeftovers(
+        originalImage: UIImage,
+        leftoverImage: UIImage,
+        mealName: String
+    ) async throws -> LeftoverEstimate {
+        let prompt = """
+        Compare these two images of the same meal.
+        Image 1 is the meal before eating. Image 2 shows everything left uneaten.
+        Estimate what fraction of the original edible food remains, considering the whole meal by calories rather than plate area. Ignore the plate, packaging, bones, napkins, and utensils. If different foods remain in different amounts, estimate their combined calorie-weighted remainder. Do not claim precision you cannot see.
+
+        Meal name: \(mealName)
+
+        Respond ONLY with this JSON object:
+        {"remaining_fraction":0.30,"confidence":"medium","summary":"About one-third of the meal appears to remain."}
+
+        remaining_fraction must be a number from 0 to 1. confidence must be low, medium, or high. summary must be one short sentence.
+        """
+
+        return try await runWithHostedQuota(.photoFood) {
+            let text = try await callAI(
+                prompt: prompt,
+                images: [originalImage, leftoverImage],
+                jsonResponse: true
+            )
+            let jsonString = extractJSON(from: text)
+            guard let data = jsonString.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let remaining = (json["remaining_fraction"] as? NSNumber)?.doubleValue,
+                  remaining.isFinite else {
+                throw AnalysisError.invalidResponse
+            }
+            return LeftoverEstimate(
+                remainingFraction: min(max(remaining, 0), 1),
+                confidence: (json["confidence"] as? String) ?? "medium",
+                summary: (json["summary"] as? String) ?? "Review the estimate before updating your diary."
+            )
         }
     }
 
