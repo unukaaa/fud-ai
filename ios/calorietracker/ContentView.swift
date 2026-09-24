@@ -936,6 +936,7 @@ struct HomeView: View {
     @State private var showVoicePopover = false
     @State private var showTextPopover = false
     @State private var showManualPopover = false
+    @State private var showAddMealSheet = false
     @State private var showSiriPhrases = false
     @State private var savedMealsMode: SavedMealsMode?
     @State private var showCopyFromDaySheet = false
@@ -1531,48 +1532,8 @@ private var dailyStepsTaskKey: String {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .overlay(alignment: .bottomTrailing) {
-                Menu {
-                    if fastingTrackingEnabled {
-                        Section {
-                            if fastingStore.activeSession != nil {
-                                Menu {
-                                    Button {
-                                        endFast()
-                                    } label: {
-                                        Label("End Fast", systemImage: "stop.fill")
-                                    }
-                                    Button(role: .destructive) {
-                                        fastingStore.cancelActive()
-                                        notificationManager.cancelFastingGoal()
-                                    } label: {
-                                        Label("Cancel Fast", systemImage: "trash")
-                                    }
-                                } label: {
-                                    Label("Fasting", systemImage: "timer")
-                                }
-                            } else {
-                                Button {
-                                    presentFoodDestination {
-                                        showFastingStart = true
-                                    }
-                                } label: {
-                                    Label("Start Fast", systemImage: "timer")
-                                }
-                            }
-                        }
-                    }
-                    if waterTrackingEnabled {
-                        Section {
-                            Menu {
-                                waterQuickMenuItems
-                            } label: {
-                                Label("Water", systemImage: "drop.fill")
-                            }
-                        }
-                    }
-                    if fastingStore.activeSession == nil {
-                        configuredFoodAddMenuContent
-                    }
+                Button {
+                    showAddMealSheet = true
                 } label: {
                             Image(systemName: "plus")
                                 .font(.system(size: 26, weight: .semibold))
@@ -1580,7 +1541,7 @@ private var dailyStepsTaskKey: String {
                                 .frame(width: 60, height: 60)
                                 .background(.ultraThinMaterial, in: Circle())
                                 .overlay(Circle().stroke(Color.primary.opacity(0.18), lineWidth: 1))
-                                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+                        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
                         }
                         .accessibilityIdentifier("home.add")
                         .opacity(isFoodSelectionMode ? 0 : 1)
@@ -1604,6 +1565,14 @@ private var dailyStepsTaskKey: String {
                             )
                             .presentationCompactAdaptation(.popover)
                         }
+                .sheet(isPresented: $showAddMealSheet) {
+                    AddMealSheet { method in
+                        showAddMealSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            presentFoodDestination { performFoodLogMethod(method) }
+                        }
+                    }
+                }
                         .popover(isPresented: $showVoicePopover) {
                             VoiceInputView(
                                 onCancel: {
@@ -2592,6 +2561,72 @@ extension HomeView {
 
     private func addMenuGroupIcon(for group: AddMenuGroupConfig) -> String {
         group.methods.first?.systemImageName ?? "folder.fill"
+    }
+}
+
+/// Focused primary actions shown from the floating add button. Less common
+/// utilities remain available from their existing settings/quick-action paths.
+private struct AddMealSheet: View {
+    let onSelect: (FoodLogMethod) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let actions: [(FoodLogMethod, String, String, String)] = [
+        (.camera, "Take a photo", "AI analyses your meal", "camera.fill"),
+        (.barcode, "Scan barcode", "Scan packaged food", "barcode.viewfinder"),
+        (.text, "Search food", "Find food and nutrition", "magnifyingglass"),
+        (.manual, "Manual entry", "Enter nutrition manually", "square.and.pencil")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Add a meal")
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                Text("Choose how you want to log it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                ForEach(actions, id: \.1) { method, title, subtitle, icon in
+                    Button {
+                        onSelect(method)
+                    } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: icon)
+                                .font(.system(size: 20, weight: .semibold))
+                                .frame(width: 42, height: 42)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(title)
+                                    .font(.system(.body, design: .rounded, weight: .semibold))
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .foregroundStyle(.primary)
+                        .padding(14)
+                        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(20)
+            .navigationTitle("Add Meal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(.regularMaterial)
     }
 }
 
