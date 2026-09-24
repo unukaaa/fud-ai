@@ -263,15 +263,25 @@ struct GeminiService {
         // produce different answers (for example, 14 chips and then 22 chips).
         // We only show a household unit when the analyzed entry already has a
         // grounded unit and quantity; otherwise describe the photographed share.
-        let genericUnits: Set<String> = ["serving", "portion", "meal"]
+        let countableUnits: Set<String> = [
+            "chip", "chips", "biscuit", "biscuits", "slice", "slices",
+            "piece", "pieces", "wing", "wings", "cracker", "crackers"
+        ]
+        let householdUnits: Set<String> = [
+            "handful", "handfuls", "tbsp", "tablespoon", "tablespoons",
+            "tsp", "teaspoon", "teaspoons", "cup", "cups"
+        ]
+        let supportedUnits = countableUnits.union(householdUnits)
         let selectedUnit = entry.selectedServingUnit?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         let groundedOption = entry.servingUnitOptions.first { option in
-            option.isValid &&
+            let quantity = option.quantity(for: entry.servingSizeGrams ?? 0)
+            return option.isValid &&
                 !option.isGramUnit &&
-                !genericUnits.contains(option.normalizedUnit) &&
-                option.quantity(for: entry.servingSizeGrams ?? 0) > 0
+                supportedUnits.contains(option.normalizedUnit) &&
+                quantity > 0 &&
+                (countableUnits.contains(option.normalizedUnit) ? quantity <= 200 : quantity <= 20)
         }
 
         let portionDescription: (Double, Bool) -> String = { fraction, isMaximum in
@@ -286,10 +296,6 @@ struct GeminiService {
                     wholeQuantity = option.quantity(for: entry.servingSizeGrams ?? 0)
                 }
                 let scaledQuantity = wholeQuantity * fraction
-                let countableUnits: Set<String> = [
-                    "chip", "chips", "biscuit", "biscuits", "slice", "slices",
-                    "piece", "pieces", "wing", "wings", "cracker", "crackers"
-                ]
                 let displayedQuantity: String
                 if countableUnits.contains(option.normalizedUnit) {
                     displayedQuantity = String(Int(scaledQuantity.rounded()))
