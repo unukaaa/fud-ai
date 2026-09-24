@@ -647,7 +647,7 @@ struct FoodResultView: View {
                         Button("Cancel") { dismiss() }
                     }
                     ToolbarItemGroup(placement: .confirmationAction) {
-                        Button("Fit to Today") { showWhatIfSheet = true }
+                        Button("Portion") { showWhatIfSheet = true }
                             .font(.system(.body, design: .rounded, weight: .semibold))
                             .tint(AppColors.protein)
 
@@ -1096,7 +1096,7 @@ private struct WhatIfMealImpactSheet: View {
             }
             .scrollContentBackground(.hidden)
             .background(AppColors.appBackground)
-            .navigationTitle("Fit to Today")
+            .navigationTitle("Portion")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
