@@ -254,13 +254,14 @@ struct GeminiService {
         var portionLimits: [Double] = [1]
         let caloriesAvailable = max(goals.calories - current.calories, 0)
         if meal.calories > 0 {
-            portionLimits.append(Double(caloriesAvailable) * 0.9 / Double(meal.calories))
+            portionLimits.append(Double(caloriesAvailable) / Double(meal.calories))
         }
         let carbsAvailable = max(goals.carbs - current.carbs, 0)
-        if meal.carbs > 0 { portionLimits.append(carbsAvailable * 0.95 / meal.carbs) }
+        if meal.carbs > 0 { portionLimits.append(carbsAvailable / meal.carbs) }
         let fatAvailable = max(goals.fat - current.fat, 0)
-        if meal.fat > 0 { portionLimits.append(fatAvailable * 0.95 / meal.fat) }
-        let suggestedFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
+        if meal.fat > 0 { portionLimits.append(fatAvailable / meal.fat) }
+        let maximumFraction = min(max(portionLimits.min() ?? 1, 0.05), 1)
+        let suggestedFraction = min(max(maximumFraction * 0.9, 0.05), 1)
         let existingMeals = dayEntries.isEmpty
             ? "No meals logged yet for this day."
             : dayEntries
@@ -276,12 +277,14 @@ struct GeminiService {
         You are a concise nutrition coach inside Food AI. The user is reviewing a meal before logging it.
         Analyze this what-if scenario only. Do not say the meal has already been logged. Do not change the user's goals.
 
-        Return exactly 2 short plain-English sentences, no markdown and no bullets, with 35 words maximum total.
-        Sentence 1: give a direct verdict on whether the meal fits today's remaining calories and macros.
-        Sentence 2: recommend a practical portion for each visible or named component using everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
+        Return exactly 2 short plain-English lines, no markdown and no bullets, with 45 words maximum total.
+        Line 1 must begin "Suggested:" and give a comfortable portion for each component.
+        Line 2 must begin "Maximum:" and give the largest portion for each component that stays within today's limits.
+        Use everyday language such as number of chips, biscuits, slices, handfuls, tablespoons, teaspoons, cups, or pieces.
         Prefer phrases like "about 12 chips and 2 tablespoons of dip". Do not use grams unless no understandable household measure exists.
         Keep the recommendation comfortably within the user's remaining calories rather than using every last calorie.
-        Base every recommended component amount on approximately (Int((suggestedFraction * 100).rounded()))% of the photographed meal, because that is the portion the app can apply when the user taps the button.
+        Base Suggested on approximately (Int((suggestedFraction * 100).rounded()))% of the photographed meal.
+        Base Maximum on approximately (Int((maximumFraction * 100).rounded()))% of the photographed meal.
         Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
 
         User:

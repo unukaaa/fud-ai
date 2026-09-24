@@ -1020,21 +1020,27 @@ private struct WhatIfMealImpactSheet: View {
         )
     }
 
-    private var suggestedFraction: Double {
+    private var maximumFraction: Double {
         var limits: [Double] = [1]
         let caloriesAvailable = max(goals.calories - currentTotals.calories, 0)
         if mealTotals.calories > 0 {
-            limits.append(Double(caloriesAvailable) * 0.9 / Double(mealTotals.calories))
+            limits.append(Double(caloriesAvailable) / Double(mealTotals.calories))
         }
         let carbsAvailable = max(goals.carbs - currentTotals.carbs, 0)
         if mealTotals.carbs > 0 {
-            limits.append(carbsAvailable * 0.95 / mealTotals.carbs)
+            limits.append(carbsAvailable / mealTotals.carbs)
         }
         let fatAvailable = max(goals.fat - currentTotals.fat, 0)
         if mealTotals.fat > 0 {
-            limits.append(fatAvailable * 0.95 / mealTotals.fat)
+            limits.append(fatAvailable / mealTotals.fat)
         }
         return min(max(limits.min() ?? 1, 0.05), 1)
+    }
+
+    private var suggestedFraction: Double {
+        // Leave roughly 10% breathing room so the recommendation is practical,
+        // while Maximum shows the hard upper bound for the day.
+        min(max(maximumFraction * 0.9, 0.05), 1)
     }
 
     private var suggestionTaskID: String {
@@ -1108,17 +1114,25 @@ private struct WhatIfMealImpactSheet: View {
                             .foregroundStyle(.primary)
                             .textSelection(.enabled)
 
-                        if suggestedFraction < 0.99 {
-                            Button {
-                                onApplyPortion(suggestedFraction)
-                                dismiss()
-                            } label: {
-                                Label("Use Suggested Portion", systemImage: "checkmark.circle.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .tint(AppColors.calorie)
+                        Button {
+                            onApplyPortion(suggestedFraction)
+                            dismiss()
+                        } label: {
+                            Label("Use Suggested", systemImage: "checkmark.circle.fill")
+                                .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(.borderedProminent)
+                        .tint(AppColors.calorie)
+
+                        Button {
+                            onApplyPortion(maximumFraction)
+                            dismiss()
+                        } label: {
+                            Label("Use Maximum", systemImage: "gauge.with.dots.needle.67percent")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(AppColors.calorie)
                     } else if let suggestionError {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(suggestionError)
