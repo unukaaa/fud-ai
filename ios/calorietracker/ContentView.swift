@@ -2400,10 +2400,15 @@ private var dailyStepsTaskKey: String {
                 try Task.checkCancellation()
                 currentEmoji = result.emoji
                 retryRequest = nil
-                if allowClarification, result.nutritionConfidence.lowercased() == "low" || allowClarification && result.nutritionConfidence.lowercased() == "medium" {
-                    clarificationPrompt = SmartClarificationPrompt(originalText: description, estimate: result)
                     activeSheet = nil
                     foodLogPhase = .result
+                if allowClarification, shouldClarify(description: description) {
+                    // Let the loading sheet finish dismissing before presenting the
+                    // clarification sheet; presenting both in the same transaction is
+                    // dropped by SwiftUI on a real device.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        clarificationPrompt = SmartClarificationPrompt(originalText: description, estimate: result)
+                    }
                 } else {
                     presentFoodResult(result)
                 }
@@ -2414,6 +2419,25 @@ private var dailyStepsTaskKey: String {
                 presentAnalysisError(error)
             }
         }
+    }
+
+    private func shouldClarify(description: String) -> Bool {
+        let text = description.lowercased()
+        let normalized = text.replacingOccurrences(of: "[^a-z0-9 ]", with: "", options: .regularExpression)
+        if normalized.contains("egg") && normalized.contains("toast") {
+            return !normalized.contains("slice") && !normalized.contains("pieces")
+        }
+        if normalized.contains("curry") {
+            let hasExplicitRice = normalized.contains("rice") && (normalized.contains("with rice") || normalized.contains("no rice") || normalized.contains("cup") || normalized.contains("cups"))
+            return !hasExplicitRice
+        }
+        if normalized.trimmingCharacters(in: .whitespacesAndNewlines) == "burger" {
+            return true
+        }
+        if normalized.contains("bowl of pasta") || normalized == "pasta" {
+            return true
+        }
+        return false
     }
 
     /// Dismiss the loading sheet first, then present the alert after the sheet
