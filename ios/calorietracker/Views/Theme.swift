@@ -20,6 +20,7 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
     case graphite
     case babyPink
     case lime
+    case singleColor
 
     static let storageKey = "appThemeColor"
     static let defaultColor: AppThemeColor = .fudPink
@@ -46,9 +47,20 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         case .graphite: return LocalizedDisplayText.text("Graphite", polish: "Grafitowy")
         case .babyPink: return LocalizedDisplayText.text("Baby Pink", polish: "Pastelowy róż")
         case .lime: return LocalizedDisplayText.text("Lime", polish: "Limonkowy")
+        case .singleColor: return LocalizedDisplayText.text("Single Colour", polish: "Jeden kolor")
         }
     }
 
+    /// Limited dashboard palette; legacy colours remain readable for existing installs.
+    static let dashboardCases: [AppThemeColor] = [.fudPink, .blue, .purple, .orange, .teal, .babyPink, .singleColor]
+
+    var dashboardDisplayName: String {
+        switch self {
+        case .fudPink: return "Default gradient"
+        case .babyPink: return "Pink"
+        default: return displayName
+        }
+    }
     var color: Color {
         Color(hex: startHex)
     }
@@ -77,6 +89,7 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         case .graphite: return "AppIconGraphite"
         case .babyPink: return "AppIconBabyPink"
         case .lime: return "AppIconLime"
+        case .singleColor: return nil
         }
     }
 
@@ -149,6 +162,7 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         case .graphite: return 0x8E8E93
         case .babyPink: return 0xFF8FAB
         case .lime: return 0xA0D911
+        case .singleColor: return 0xFF375F
         }
     }
 
@@ -172,6 +186,7 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
         case .graphite: return 0xB8B8BE
         case .babyPink: return 0xFFB3C6
         case .lime: return 0xC3E956
+        case .singleColor: return 0xFF375F
         }
     }
 }
@@ -181,7 +196,8 @@ enum AppColors {
     static var calorieGradient: [Color] { AppThemeColor.current.gradientColors }
     static var calorie: Color { AppThemeColor.current.color }
 
-    // Protein
+    // Macro helpers retain their existing app-wide behaviour. Today’s fixed
+    // macro colours are applied locally by HomeTopNutrient.
     static var proteinGradient: [Color] { calorieGradient }
     static var protein: Color { calorie }
 

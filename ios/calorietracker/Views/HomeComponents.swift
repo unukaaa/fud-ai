@@ -260,11 +260,11 @@ enum HomeTopNutrient: String, CaseIterable, Identifiable {
     var gradientColors: [Color] {
         switch self {
         case .protein:
-            AppColors.proteinGradient
+            [.green, .green.opacity(0.72)]
         case .carbs:
-            AppColors.carbsGradient
+            [Color(hex: 0x0A84FF), Color(hex: 0x5EAEFF)]
         case .fat:
-            AppColors.fatGradient
+            [Color(hex: 0xFF9500), Color(hex: 0xFFB340)]
         default:
             AppColors.calorieGradient
         }
@@ -559,9 +559,10 @@ struct CalorieGauge: View {
     var launchFillEpoch: Int = 0
 
     // Keep the calorie dome as Home's signature, but at a tighter proportion so the first
-    // meal enters the initial viewport sooner. Android uses the same 240 / 14 geometry.
+    // meal enters the initial viewport sooner.
     private let diameter: CGFloat = 240
-    private let lineWidth: CGFloat = 14
+    // 12pt reduces visual weight by roughly 14% while keeping the same gauge.
+    private let lineWidth: CGFloat = 12
 
     @State private var shownProgress: Double = 0
     @State private var lastEpoch = 0
@@ -632,7 +633,7 @@ struct CalorieGauge: View {
                     .minimumScaleFactor(0.6)
 
                 HStack(spacing: 5) {
-                    Image(systemName: "flame.fill")
+                    Image(systemName: eaten > goal && goal > 0 ? "flame.fill" : "checkmark.circle.fill")
                         .font(.system(size: 11, weight: .semibold))
                     Text(statusText)
                         .font(.system(.footnote, design: .rounded, weight: .semibold))
@@ -776,6 +777,6 @@ struct DailyStepsRow: View {
     }
 
     private var stepsLabel: String {
-        String(localized: "\(steps) steps")
+        String(localized: "\(steps.formatted()) steps today")
     }
 }

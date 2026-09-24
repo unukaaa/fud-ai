@@ -208,7 +208,7 @@ struct ContentView: View {
                 .tag(AppTab.home)
                 .tabItem {
                     Image(systemName: "house.fill")
-                    Text("Home")
+                    Text("Today")
                 }
 
             ProgressTabView()
@@ -222,7 +222,7 @@ struct ContentView: View {
                 .tag(AppTab.coach)
                 .tabItem {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
-                    Text("Coach")
+                    Text("AI Coach")
                 }
 
             ProfileView(
@@ -234,7 +234,7 @@ struct ContentView: View {
                 .tag(AppTab.settings)
                 .tabItem {
                     Image(systemName: "gearshape.fill")
-                    Text("Settings")
+                    Text("Profile")
                 }
                 .badge(appUpdateState.isUpdateAvailable ? "!" : nil)
 
@@ -5036,9 +5036,9 @@ struct ProfileView: View {
                     .tint(.secondary)
 
                     Picker(selection: $appThemeColorRaw) {
-                        ForEach(AppThemeColor.allCases) { themeColor in
+                        ForEach(AppThemeColor.dashboardCases) { themeColor in
                             Label {
-                                Text(themeColor.displayName)
+                                Text(themeColor.dashboardDisplayName)
                             } icon: {
                                 Image(uiImage: themeColor.menuSwatchImage)
                             }
