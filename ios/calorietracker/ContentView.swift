@@ -937,6 +937,7 @@ struct HomeView: View {
     @State private var showTextPopover = false
     @State private var showManualPopover = false
     @State private var showAddMealSheet = false
+    @State private var clarificationPrompt: SmartClarificationPrompt?
     @State private var showSiriPhrases = false
     @State private var savedMealsMode: SavedMealsMode?
     @State private var showCopyFromDaySheet = false
@@ -1806,6 +1807,15 @@ private var dailyStepsTaskKey: String {
                     }
                 }
             }
+            .sheet(item: $clarificationPrompt) { prompt in
+                SmartClarificationView(prompt: prompt, onSkip: {
+                    clarificationPrompt = nil
+                    presentFoodResult(prompt.estimate)
+                }) { answer in
+                    clarificationPrompt = nil
+                    startTextAnalysis(prompt.originalText + "\nClarification: " + answer, allowClarification: false)
+                }
+            }
             .sheet(item: $savedMealsMode, content: { mode in
                 RecentsView(mode: mode, logDate: logDateForSelectedDay, onReview: { entry in
                     afterLoggingPresentationDismisses {
@@ -2380,7 +2390,7 @@ private var dailyStepsTaskKey: String {
         }
     }
 
-    private func startTextAnalysis(_ description: String) {
+    private func startTextAnalysis(_ description: String, allowClarification: Bool = true) {
         retryRequest = .text(description)
         presentFoodLogLoading(.analyzingText)
         analysisTask?.cancel()
@@ -2390,7 +2400,13 @@ private var dailyStepsTaskKey: String {
                 try Task.checkCancellation()
                 currentEmoji = result.emoji
                 retryRequest = nil
-                presentFoodResult(result)
+                if allowClarification, result.nutritionConfidence.lowercased() == "low" || allowClarification && result.nutritionConfidence.lowercased() == "medium" {
+                    clarificationPrompt = SmartClarificationPrompt(originalText: description, estimate: result)
+                    activeSheet = nil
+                    foodLogPhase = .result
+                } else {
+                    presentFoodResult(result)
+                }
             } catch is CancellationError {
                 // User tapped Cancel on the analyzing sheet; cancelAnalysis already reset the UI.
             } catch {
@@ -2484,6 +2500,72 @@ private var dailyStepsTaskKey: String {
         }
     }
 
+}
+
+private struct SmartClarificationPrompt: Identifiable {
+    let id = UUID()
+    let originalText: String
+    let estimate: GeminiService.FoodAnalysis
+
+    var question: String {
+        let text = originalText.lowercased()
+        if text.contains("egg") && text.contains("toast") { return "Quick check — what best matches the toast?" }
+        if text.contains("curry") { return "Which version is closest?" }
+        if text.contains("burger") { return "Which type is closest?" }
+        return "Quick check — which option is closest?"
+    }
+
+    var options: [String] {
+        let text = originalText.lowercased()
+        if text.contains("egg") && text.contains("toast") {
+            return ["2 eggs + 2 slices of toast", "2 eggs + 1 slice of toast", "Eggs cooked with butter/oil"]
+        }
+        if text.contains("curry") {
+            return ["Curry with rice", "Curry only", "Creamy/coconut curry"]
+        }
+        if text.contains("burger") {
+            return ["Cheeseburger", "Double cheeseburger", "Chicken burger"]
+        }
+        return ["Small portion", "Regular portion", "Large portion"]
+    }
+}
+
+private struct SmartClarificationView: View {
+    let prompt: SmartClarificationPrompt
+    let onSkip: () -> Void
+    let onResolve: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("We estimated")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(prompt.estimate.name)
+                    .font(.title3.bold())
+                Text("~\(prompt.estimate.calories) cals")
+                    .font(.headline)
+                Text(prompt.question)
+                    .font(.headline)
+                    .padding(.top, 8)
+                ForEach(prompt.options, id: \.self) { option in
+                    Button(option) { onResolve(option) }
+                        .buttonStyle(.bordered)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Button("Use best estimate") {
+                    onSkip()
+                }
+                .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(22)
+            .navigationTitle("Quick check")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
+    }
 }
 
 // Configurable + menu helpers (same file as HomeView so private state is accessible).
