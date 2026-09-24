@@ -932,6 +932,7 @@ struct HomeView: View {
     /// The in-flight photo/text/barcode analysis behind the analyzing sheet, so Cancel can abort it.
     @State private var analysisTask: Task<Void, Never>?
     @State private var selectedDate: Date = .now
+    @State private var showDatePicker = false
     @State private var showVoicePopover = false
     @State private var showTextPopover = false
     @State private var showManualPopover = false
@@ -1134,6 +1135,15 @@ struct HomeView: View {
     private var navigationTitle: String {
         if isToday { return "Today" }
         return selectedDate.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+    }
+
+    private var greetingText: String {
+        let hour = Calendar.current.component(.hour, from: .now)
+        switch hour {
+        case 5..<12: return "Good morning,"
+        case 12..<18: return "Good afternoon,"
+        default: return "Good evening,"
+        }
     }
 
     /// Horizontal swipe → previous/next day. Attached only to the top section (calorie hero +
@@ -1398,13 +1408,27 @@ private var dailyStepsTaskKey: String {
         let _ = profileStore.profile
         return NavigationStack {
             List {
-                // Week energy strip
+                // Compact greeting and date access. The existing detailed date view remains
+                // available from the calendar button.
                 Section {
-                    WeekEnergyStrip(
-                        selectedDate: $selectedDate,
-                        caloriesForDate: { foodStore.calories(for: $0) },
-                        calorieGoal: calorieGoal
-                    )
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(greetingText)
+                                .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text("\(userProfile.displayName) 👋")
+                                .font(.system(.title2, design: .rounded, weight: .bold))
+                        }
+                        Spacer()
+                        Button { showDatePicker = true } label: {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 38, height: 38)
+                                .background(AppColors.appCard, in: Circle())
+                        }
+                        .accessibilityLabel("Choose date")
+                    }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
@@ -1439,127 +1463,27 @@ private var dailyStepsTaskKey: String {
 
                 }
 
-                // Unified diary: water and fasting are grouped by their log/end time,
-                // but stay excluded from food calories, macros, sharing and favorites.
-                // Tracking preferences control new-entry UI, not persisted history.
-                // Keep previously logged water and fasting sessions visible after
-                // either tracker is disabled so the diary never appears to lose data.
-                let diaryFasts = fastingStore.completed(on: selectedDate)
-                    + (isToday ? [fastingStore.activeSession].compactMap { $0 } : [])
-                let mealGroups = homeDiaryMealGroups(
-                    foodEntries: foodStore.entries(for: selectedDate),
-                    waterEntries: waterStore.entries(on: selectedDate),
-                    fastingSessions: diaryFasts,
-                    order: foodLogSortOrder
-                )
-                if mealGroups.isEmpty {
-                    Section(isToday ? "Today's Diary" : "Diary") {
+                Section {
+                    HStack {
+                        Text("Today's meals")
+                            .font(.system(.title3, design: .rounded, weight: .bold))
+                        Spacer()
+                        Button("See all  ›") { showNutritionDetail = true }
+                            .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
+                    let chronologicalFood = foodStore.entries(for: selectedDate).sorted { $0.timestamp < $1.timestamp }
+                    if chronologicalFood.isEmpty {
                         Text("No diary entries")
                             .foregroundStyle(.secondary)
                             .listRowBackground(AppColors.appCard)
-                    }
-                } else {
-                    ForEach(mealGroups) { group in
-                        Section {
-                            ForEach(group.items) { item in
-                                Group {
-                                    switch item {
-                                    case .food(let entry):
-                                        todayFoodRow(entry)
-                                    case .water(let entry):
-                                        WaterLogRow(entry: entry, unit: waterUnit)
-                                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                                Button {
-                                                    pendingDiaryDeletion = .water(entry)
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash.fill")
-                                                }
-                                                .tint(.red)
-                                            }
-                                    case .fasting(let session):
-                                        Button {
-                                            editingFastingSession = session
-                                        } label: {
-                                            if session.isActive {
-                                                ActiveFastingRow(session: session)
-                                            } else {
-                                                CompletedFastingRow(session: session)
-                                            }
-                                        }
-                                        .buttonStyle(.plain)
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: !session.isActive) {
-                                            if session.isActive {
-                                                Button {
-                                                    endFast()
-                                                } label: {
-                                                    Label("End Fast", systemImage: "stop.fill")
-                                                }
-                                                .tint(AppColors.calorie)
-                                                Button(role: .destructive) {
-                                                    fastingStore.cancelActive()
-                                                    notificationManager.cancelFastingGoal()
-                                                } label: {
-                                                    Label("Cancel Fast", systemImage: "trash.fill")
-                                                }
-                                            } else {
-                                                Button {
-                                                    pendingDiaryDeletion = .fasting(session)
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash.fill")
-                                                }
-                                                .tint(.red)
-                                            }
-                                        }
-                                    }
-                                }
+                    } else {
+                        ForEach(chronologicalFood) { entry in
+                            todayFoodRow(entry)
                                 .listRowBackground(AppColors.appCard)
-                            }
-                        } header: {
-                            HStack(alignment: .center) {
-                                Label(group.meal.displayName, systemImage: group.meal.icon)
-                                if group.id == mealGroups.first?.id {
-                                    Menu {
-                                        Picker("Food Log Order", selection: $foodLogSortOrderRaw) {
-                                            ForEach(FoodLogSortOrder.allCases) { order in
-                                                Text(order.displayName).tag(order.rawValue)
-                                            }
-                                        }
-                                    } label: {
-                                        HStack(spacing: 6) {
-                                            Image(systemName: "arrow.up.arrow.down")
-                                                .font(.system(.caption2, design: .rounded, weight: .semibold))
-                                            Text("Sort")
-                                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                                        }
-                                    }
-                                    .tint(AppColors.calorie)
-                                    .textCase(nil)
-                                    .padding(.leading, 8)
-                                }
-                                Spacer()
-                                if !group.foodEntries.isEmpty {
-                                    // Share and totals include food only; water and fasting have no calories/macros.
-                                    Button {
-                                        MealShare.presentShareSheet(for: group.foodEntries)
-                                    } label: {
-                                        Image(systemName: "square.and.arrow.up")
-                                            .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                                            .foregroundStyle(AppColors.calorie)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(.trailing, 12)
-                                    .textCase(nil)
-                                    VStack(alignment: .trailing, spacing: 1) {
-                                        Text("\(group.totalCalories.formatted()) kcal")
-                                            .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                                            .foregroundStyle(AppColors.calorie)
-                                        Text("\(Int(group.totalProtein.rounded()))P · \(Int(group.totalCarbs.rounded()))C · \(Int(group.totalFat.rounded()))F")
-                                            .font(.system(.caption2, design: .rounded, weight: .medium))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    .textCase(nil)
-                                }
-                            }
                         }
                     }
                 }
@@ -1644,7 +1568,7 @@ private var dailyStepsTaskKey: String {
                                 .font(.system(size: 26, weight: .semibold))
                                 .foregroundStyle(.white)
                                 .frame(width: 60, height: 60)
-                                .background(AppColors.calorie, in: Circle())
+                                .background(AppColors.dashboard, in: Circle())
                         }
                         .accessibilityIdentifier("home.add")
                         .opacity(isFoodSelectionMode ? 0 : 1)
@@ -2060,6 +1984,20 @@ private var dailyStepsTaskKey: String {
             }
             .sheet(isPresented: $showNutritionDetail) {
                 NutritionDetailView(date: selectedDate, homeTopNutrientsRaw: $homeTopNutrientsRaw)
+            }
+            .sheet(isPresented: $showDatePicker) {
+                NavigationStack {
+                    DatePicker("Choose date", selection: $selectedDate, in: ...Date.now, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .padding()
+                        .navigationTitle("Choose date")
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showDatePicker = false }
+                            }
+                        }
+                }
+                .presentationDetents([.medium])
             }
             .sheet(isPresented: $showCustomWaterLog) {
                 WaterCustomAmountSheet(unit: waterUnit, onAdd: logWater)
@@ -4505,6 +4443,7 @@ struct ProfileView: View {
     @AppStorage(FoodMeasurementSettings.preferGramsByDefaultKey) private var preferGramsByDefault = false
     @AppStorage(MealPhotoSettings.saveToGalleryKey) private var saveMealPhotosToGallery = false
     @AppStorage(AppThemeColor.storageKey) private var appThemeColorRaw = AppThemeColor.defaultColor.rawValue
+    @AppStorage(AppThemeColor.dashboardStorageKey) private var dashboardThemeColorRaw = AppThemeColor.defaultColor.rawValue
     @AppStorage(WaterSettings.enabledKey) private var waterTrackingEnabled = false
     @AppStorage(WaterSettings.dailyGoalKey) private var waterDailyGoal = WaterSettings.defaultDailyGoalMl
     @AppStorage(WaterSettings.unitKey) private var waterUnitRaw = WaterUnit.defaultUnit.rawValue
@@ -5044,7 +4983,7 @@ struct ProfileView: View {
                     .pickerStyle(.menu)
                     .tint(.secondary)
 
-                    Picker(selection: $appThemeColorRaw) {
+                    Picker(selection: $dashboardThemeColorRaw) {
                         ForEach(AppThemeColor.dashboardCases) { themeColor in
                             Label {
                                 Text(themeColor.dashboardDisplayName)

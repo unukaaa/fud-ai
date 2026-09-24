@@ -23,6 +23,8 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
     case singleColor
 
     static let storageKey = "appThemeColor"
+    /// Dashboard-only palette. This must not drive the global app tint.
+    static let dashboardStorageKey = "dashboardThemeColor"
     static let defaultColor: AppThemeColor = .fudPink
 
     var id: String { rawValue }
@@ -67,6 +69,27 @@ enum AppThemeColor: String, CaseIterable, Identifiable {
 
     var gradientColors: [Color] {
         [Color(hex: startHex), Color(hex: endHex)]
+    }
+
+    /// The dashboard's default is intentionally a traffic-light sweep. Other
+    /// presets remain restrained two-colour gradients.
+    var dashboardGradientColors: [Color] {
+        switch self {
+        case .fudPink:
+            return [Color(hex: 0x19E6A3), Color(hex: 0xF4F542), Color(hex: 0xFF9F1C), Color(hex: 0xFF375F)]
+        case .singleColor:
+            return [color, color]
+        default:
+            return gradientColors
+        }
+    }
+
+    static var dashboardCurrent: AppThemeColor {
+        guard let rawValue = UserDefaults.standard.string(forKey: dashboardStorageKey),
+              let themeColor = AppThemeColor(rawValue: rawValue) else {
+            return defaultColor
+        }
+        return themeColor
     }
 
     var alternateIconName: String? {
@@ -195,6 +218,8 @@ enum AppColors {
     // Calorie: Red → Pink
     static var calorieGradient: [Color] { AppThemeColor.current.gradientColors }
     static var calorie: Color { AppThemeColor.current.color }
+    static var dashboardGradient: [Color] { AppThemeColor.dashboardCurrent.dashboardGradientColors }
+    static var dashboard: Color { AppThemeColor.dashboardCurrent.color }
 
     // Macro helpers retain their existing app-wide behaviour. Today’s fixed
     // macro colours are applied locally by HomeTopNutrient.
