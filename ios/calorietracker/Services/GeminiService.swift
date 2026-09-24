@@ -263,11 +263,13 @@ struct GeminiService {
         let bodyFat = profile.bodyFatPercentage.map { "\(Int(($0 * 100).rounded()))%" } ?? "not set"
 
         let prompt = """
-        You are a concise nutrition coach inside Fud AI. The user is reviewing a meal before logging it.
+        You are a concise nutrition coach inside Food AI. The user is reviewing a meal before logging it.
         Analyze this what-if scenario only. Do not say the meal has already been logged. Do not change the user's goals.
 
-        Return 2-4 short plain-English sentences, no markdown and no bullets.
-        Say whether logging this meal as-is fits the remaining daily targets. If it does not fit well, suggest one practical action: reduce quantity, replace an item, add a protein/fiber source, or balance the next meal. Be specific with calories/macros from the data below.
+        Return exactly 2 short plain-English sentences, no markdown and no bullets, with 35 words maximum total.
+        Sentence 1: give a direct verdict on whether the meal fits today's remaining calories and macros.
+        Sentence 2: give only the single highest-impact adjustment, using a specific food swap, portion change, or protein addition.
+        Do not repeat every macro, explain your reasoning, mention saving the meal for another day, or use filler such as "to balance your macros".
 
         User:
         - Goal: \(profile.goal.displayName)

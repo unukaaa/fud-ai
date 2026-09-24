@@ -1036,7 +1036,7 @@ private struct WhatIfMealImpactSheet: View {
                         after: "\(afterTotals.calories) / \(goals.calories) kcal",
                         remaining: remainingCaloriesText,
                         isOver: afterTotals.calories > goals.calories,
-                        tint: AppColors.calorie
+                        tint: limitStatusColor(current: Double(afterTotals.calories), goal: Double(goals.calories))
                     )
                     WhatIfImpactRow(
                         label: "Protein",
@@ -1044,7 +1044,7 @@ private struct WhatIfMealImpactSheet: View {
                         after: "\(MacroValueFormatter.string(afterTotals.protein)) / \(profile.effectiveProtein)g",
                         remaining: remainingMacroText(afterTotals.protein, goal: Double(profile.effectiveProtein)),
                         isOver: false,
-                        tint: AppColors.protein
+                        tint: achievementStatusColor(current: afterTotals.protein, goal: Double(profile.effectiveProtein))
                     )
                     WhatIfImpactRow(
                         label: "Carbs",
@@ -1052,7 +1052,7 @@ private struct WhatIfMealImpactSheet: View {
                         after: "\(MacroValueFormatter.string(afterTotals.carbs)) / \(profile.effectiveCarbs)g",
                         remaining: remainingMacroText(afterTotals.carbs, goal: Double(profile.effectiveCarbs)),
                         isOver: afterTotals.carbs > Double(profile.effectiveCarbs),
-                        tint: AppColors.carbs
+                        tint: limitStatusColor(current: afterTotals.carbs, goal: Double(profile.effectiveCarbs))
                     )
                     WhatIfImpactRow(
                         label: "Fat",
@@ -1060,7 +1060,7 @@ private struct WhatIfMealImpactSheet: View {
                         after: "\(MacroValueFormatter.string(afterTotals.fat)) / \(profile.effectiveFat)g",
                         remaining: remainingMacroText(afterTotals.fat, goal: Double(profile.effectiveFat)),
                         isOver: afterTotals.fat > Double(profile.effectiveFat),
-                        tint: AppColors.fat
+                        tint: limitStatusColor(current: afterTotals.fat, goal: Double(profile.effectiveFat))
                     )
                 } header: {
                     Text("Impact on Today")
@@ -1125,6 +1125,22 @@ private struct WhatIfMealImpactSheet: View {
             return "\(MacroValueFormatter.string(remaining))g left"
         }
         return "\(MacroValueFormatter.string(abs(remaining)))g over"
+    }
+
+    private func limitStatusColor(current: Double, goal: Double) -> Color {
+        guard goal > 0, current > 0 else { return .secondary }
+        let ratio = current / goal
+        if ratio > 1 { return .red }
+        if ratio >= 0.85 { return .orange }
+        return .green
+    }
+
+    private func achievementStatusColor(current: Double, goal: Double) -> Color {
+        guard goal > 0, current > 0 else { return .secondary }
+        let ratio = current / goal
+        if ratio >= 0.9 { return .green }
+        if ratio >= 0.6 { return .orange }
+        return .red
     }
 
     @MainActor

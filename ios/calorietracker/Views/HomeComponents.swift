@@ -492,6 +492,14 @@ struct NutritionSummaryCard: View {
     private var calorieRemaining: Int { calorieGoal - calories }
     private var proteinRemaining: Double { proteinGoal - protein }
 
+    private var calorieStatusColor: Color {
+        limitStatusColor(current: Double(calories), goal: Double(calorieGoal))
+    }
+
+    private var proteinStatusColor: Color {
+        achievementStatusColor(current: protein, goal: proteinGoal)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .firstTextBaseline) {
@@ -508,15 +516,15 @@ struct NutritionSummaryCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(calorieStatusValue)
                     .font(.system(size: 46, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(calorieStatusColor)
                     .contentTransition(.numericText())
                 Text(calorieStatusLabel)
                     .font(.system(.headline, design: .rounded, weight: .medium))
-                    .foregroundStyle(calorieRemaining >= 0 ? .secondary : AppColors.calorie)
+                    .foregroundStyle(calorieStatusColor)
             }
 
             ProgressView(value: progress(calories, goal: calorieGoal))
-                .tint(AppColors.calorie)
+                .tint(calorieStatusColor)
                 .scaleEffect(x: 1, y: 1.7, anchor: .center)
 
             VStack(alignment: .leading, spacing: 9) {
@@ -527,10 +535,10 @@ struct NutritionSummaryCard: View {
                     Text("\(MacroValueFormatter.string(protein)) / \(MacroValueFormatter.string(proteinGoal))g")
                         .font(.system(.headline, design: .rounded, weight: .bold))
                 }
-                .foregroundStyle(AppColors.protein)
+                .foregroundStyle(proteinStatusColor)
 
                 ProgressView(value: progress(protein, goal: proteinGoal))
-                    .tint(AppColors.protein)
+                    .tint(proteinStatusColor)
 
                 Text(proteinStatus)
                     .font(.system(.caption, design: .rounded, weight: .medium))
@@ -538,9 +546,9 @@ struct NutritionSummaryCard: View {
             }
 
             HStack(spacing: 12) {
-                compactMacro(label: "Carbs", current: carbs, goal: carbsGoal, color: AppColors.carbs)
+                compactMacro(label: "Carbs", current: carbs, goal: carbsGoal, color: limitStatusColor(current: carbs, goal: carbsGoal))
                 Divider().frame(height: 32)
-                compactMacro(label: "Fat", current: fat, goal: fatGoal, color: AppColors.fat)
+                compactMacro(label: "Fat", current: fat, goal: fatGoal, color: limitStatusColor(current: fat, goal: fatGoal))
             }
 
             if let burnLine {
@@ -579,6 +587,25 @@ struct NutritionSummaryCard: View {
     private func progress(_ current: Double, goal: Double) -> Double {
         guard goal > 0 else { return 0 }
         return min(current / goal, 1)
+    }
+
+    /// Calories, carbs and fat act as daily limits. Green leaves breathing room,
+    /// amber means the user is close to the limit, and red means they are over.
+    private func limitStatusColor(current: Double, goal: Double) -> Color {
+        guard goal > 0, current > 0 else { return .secondary }
+        let ratio = current / goal
+        if ratio > 1 { return .red }
+        if ratio >= 0.85 { return .orange }
+        return .green
+    }
+
+    /// Protein is an achievement target, so its traffic-light direction is reversed.
+    private func achievementStatusColor(current: Double, goal: Double) -> Color {
+        guard goal > 0, current > 0 else { return .secondary }
+        let ratio = current / goal
+        if ratio >= 0.9 { return .green }
+        if ratio >= 0.6 { return .orange }
+        return .red
     }
 
     private func compactMacro(label: String, current: Double, goal: Double, color: Color) -> some View {
