@@ -2569,12 +2569,12 @@ extension HomeView {
 private struct AddMealSheet: View {
     let onSelect: (FoodLogMethod) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var showPhotoChoices = false
 
     private let actions: [(FoodLogMethod, String, String, String)] = [
-        (.camera, "Take a photo", "AI analyses your meal", "camera.fill"),
+        (.camera, "Photo", "AI analyses your meal", "camera.fill"),
         (.barcode, "Scan barcode", "Scan packaged food", "barcode.viewfinder"),
-        (.text, "Search food", "Find food and nutrition", "magnifyingglass"),
-        (.manual, "Manual entry", "Enter nutrition manually", "square.and.pencil")
+        (.text, "Search food", "Search or describe what you ate", "magnifyingglass")
     ]
 
     var body: some View {
@@ -2588,7 +2588,11 @@ private struct AddMealSheet: View {
 
                 ForEach(actions, id: \.1) { method, title, subtitle, icon in
                     Button {
-                        onSelect(method)
+                        if method == .camera {
+                            showPhotoChoices = true
+                        } else {
+                            onSelect(method)
+                        }
                     } label: {
                         HStack(spacing: 14) {
                             Image(systemName: icon)
@@ -2613,6 +2617,17 @@ private struct AddMealSheet: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Text("Quick Add")
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 4)
+
+                HStack(spacing: 10) {
+                    quickAction(.recent, "Recent", "clock.fill")
+                    quickAction(.frequent, "Frequent", "repeat")
+                    quickAction(.voice, "Voice", "mic.fill")
+                }
                 Spacer(minLength: 0)
             }
             .padding(20)
@@ -2627,6 +2642,49 @@ private struct AddMealSheet: View {
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
         .presentationBackground(.regularMaterial)
+        .sheet(isPresented: $showPhotoChoices) {
+            NavigationStack {
+                VStack(spacing: 12) {
+                    photoChoice(.camera, "Take Photo", "camera.fill")
+                    photoChoice(.photos, "Choose from Photos", "photo.on.rectangle")
+                    Spacer()
+                }
+                .padding(20)
+                .navigationTitle("Photo")
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .presentationDetents([.height(220)])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func quickAction(_ method: FoodLogMethod, _ title: String, _ icon: String) -> some View {
+        Button { onSelect(method) } label: {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title).font(.caption.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .foregroundStyle(.secondary)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 13))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func photoChoice(_ method: FoodLogMethod, _ title: String, _ icon: String) -> some View {
+        Button {
+            showPhotoChoices = false
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onSelect(method) }
+        } label: {
+            Label(title, systemImage: icon)
+                .font(.system(.body, design: .rounded, weight: .semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -615,7 +615,7 @@ struct CalorieGauge: View {
 
                 Text(eaten.formatted())
                     .font(.system(size: 50, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                     .animation(.snappy, value: eaten)
                     .lineLimit(1)
