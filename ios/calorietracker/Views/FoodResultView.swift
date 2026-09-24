@@ -1020,45 +1020,17 @@ private struct WhatIfMealImpactSheet: View {
         )
     }
 
-    private var maximumFraction: Double {
-        let caloriesAvailable = max(goals.calories - currentTotals.calories, 0)
-        guard mealTotals.calories > 0 else { return 1 }
-        let rawFraction = min(max(Double(caloriesAvailable) / Double(mealTotals.calories), 0), 1)
-        let normalizedName = entry.name.lowercased()
-        let isMixedMeal = entry.ingredients.count > 1 || normalizedName.contains(" & ")
-        guard normalizedName.contains("wafer roll"), !isMixedMeal,
-              let grams = entry.servingSizeGrams, grams > 0 else { return rawFraction }
-        let wholePiecesThatFit = floor(grams * rawFraction / 10)
-        return min(max(wholePiecesThatFit * 10 / grams, 0), 1)
+    private var portionPlan: PortionSuggestionPlan {
+        PortionSuggestionPolicy.plan(
+            entry: entry,
+            currentCalories: currentTotals.calories,
+            calorieGoal: goals.calories
+        )
     }
 
-    private var suggestedFraction: Double {
-        // Suggested should be a normal everyday serving, not simply 90% of
-        // everything the user could technically fit into today's limits.
-        let normalizedName = entry.name.lowercased()
-        let isMixedMeal = entry.ingredients.count > 1 || normalizedName.contains(" & ")
-        let minimumUsefulFraction: Double = {
-            guard normalizedName.contains("wafer roll"), !isMixedMeal,
-                  let grams = entry.servingSizeGrams, grams > 0 else { return 0.05 }
-            return min(max(10 / grams, 0.01), 1)
-        }()
-        let comfortableServingGrams: Double? = {
-            if normalizedName.contains("wafer roll") && !isMixedMeal { return 30 }
-            if normalizedName.contains("popcorn") { return 25 }
-            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 30 }
-            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
-            if normalizedName.contains("cracker") { return 30 }
-            return nil
-        }()
-        let comfortableFraction = comfortableServingGrams.flatMap { grams in
-            entry.servingSizeGrams.map { min(max(grams / $0, 0.05), 1) }
-        } ?? 1
-        let rawFraction = min(max(maximumFraction * 0.9, minimumUsefulFraction), comfortableFraction)
-        guard normalizedName.contains("wafer roll"), !isMixedMeal,
-              let grams = entry.servingSizeGrams, grams > 0 else { return rawFraction }
-        let pieces = max((grams * rawFraction / 10).rounded(), 1)
-        return min(pieces * 10 / grams, 1)
-    }
+    private var maximumFraction: Double { portionPlan.maximumFraction }
+
+    private var suggestedFraction: Double { portionPlan.suggestedFraction }
 
     private var suggestedCalories: Int {
         Int((Double(mealTotals.calories) * suggestedFraction).rounded())

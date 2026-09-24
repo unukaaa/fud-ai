@@ -245,153 +245,17 @@ struct GeminiService {
     ) async throws -> String {
         return try await runWithHostedQuota(.whatIf) {
         let current = macroTotals(for: dayEntries)
-        let meal = macroTotals(for: entry)
-        let goals = MacroTotals(
-            calories: profile.effectiveCalories,
-            protein: Double(profile.effectiveProtein),
-            carbs: Double(profile.effectiveCarbs),
-            fat: Double(profile.effectiveFat)
+        let plan = PortionSuggestionPolicy.plan(
+            entry: entry,
+            currentCalories: current.calories,
+            calorieGoal: profile.effectiveCalories
         )
-        let normalizedName = entry.name.lowercased()
-        let isMixedMeal = entry.ingredients.count > 1 || normalizedName.contains(" & ")
-        let inferredGramsPerPiece: Double? = {
-            guard !isMixedMeal else { return nil }
-            if normalizedName.contains("wafer roll") { return 10 }
-            return nil
-        }()
-        let caloriesAvailable = max(goals.calories - current.calories, 0)
-        // Calories are the hard portion ceiling. Carbs and fat remain visible
-        // as warnings above, but an already-exceeded macro must not collapse an
-        // otherwise reasonable serving into a meaningless 5% suggestion.
-        let rawMaximumFraction = meal.calories > 0
-            ? min(max(Double(caloriesAvailable) / Double(meal.calories), 0), 1)
-            : 1
-        let maximumFraction: Double = {
-            guard let totalGrams = entry.servingSizeGrams,
-                  let gramsPerPiece = inferredGramsPerPiece,
-                  totalGrams > 0 else { return rawMaximumFraction }
-            let wholePiecesThatFit = floor(totalGrams * rawMaximumFraction / gramsPerPiece)
-            return min(max(wholePiecesThatFit * gramsPerPiece / totalGrams, 0), 1)
-        }()
-        let comfortableServingGrams: Double? = {
-            if normalizedName.contains("wafer roll") && !isMixedMeal { return 30 }
-            if normalizedName.contains("popcorn") { return 25 }
-            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 30 }
-            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
-            if normalizedName.contains("cracker") { return 30 }
-            return nil
-        }()
-        let comfortableFraction = comfortableServingGrams.flatMap { grams in
-            entry.servingSizeGrams.map { min(max(grams / $0, 0.05), 1) }
-        } ?? 1
-        let minimumUsefulFraction = inferredGramsPerPiece.flatMap { grams in
-            entry.servingSizeGrams.map { min(max(grams / $0, 0.01), 1) }
-        } ?? 0.05
-        let rawSuggestedFraction = min(max(maximumFraction * 0.9, minimumUsefulFraction), comfortableFraction)
-        let suggestedFraction: Double = {
-            guard let totalGrams = entry.servingSizeGrams,
-                  let gramsPerPiece = inferredGramsPerPiece,
-                  totalGrams > 0 else { return rawSuggestedFraction }
-            let pieces = max((totalGrams * rawSuggestedFraction / gramsPerPiece).rounded(), 1)
-            return min(pieces * gramsPerPiece / totalGrams, 1)
-        }()
-        let suggestedCalories = Int((Double(meal.calories) * suggestedFraction).rounded())
-        let maximumCalories = Int((Double(meal.calories) * maximumFraction).rounded())
-
-        // Keep the portion amounts deterministic. Asking the language model to
-        // translate a percentage into a chip/piece count made identical meals
-        // produce different answers (for example, 14 chips and then 22 chips).
-        // We only show a household unit when the analyzed entry already has a
-        // grounded unit and quantity; otherwise describe the photographed share.
-        let countableUnits: Set<String> = [
-            "chip", "chips", "biscuit", "biscuits", "slice", "slices",
-            "piece", "pieces", "wing", "wings", "cracker", "crackers"
-        ]
-        let householdUnits: Set<String> = [
-            "handful", "handfuls", "tbsp", "tablespoon", "tablespoons",
-            "tsp", "teaspoon", "teaspoons", "cup", "cups"
-        ]
-        let supportedUnits = countableUnits.union(householdUnits)
-        let inferredGramsPerHandful: Double? = {
-            if normalizedName.contains("popcorn") { return 12.5 }
-            if normalizedName.contains("potato chip") || normalizedName.contains("crisps") { return 25 }
-            if normalizedName.contains("nuts") || normalizedName.contains("almond") || normalizedName.contains("cashew") { return 30 }
-            if normalizedName.contains("cracker") { return 20 }
-            return nil
-        }()
-        let selectedUnit = entry.selectedServingUnit?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let groundedOption = entry.servingUnitOptions.first { option in
-            let quantity = option.quantity(for: entry.servingSizeGrams ?? 0)
-            return option.isValid &&
-                !option.isGramUnit &&
-                supportedUnits.contains(option.normalizedUnit) &&
-                quantity > 0 &&
-                (countableUnits.contains(option.normalizedUnit) ? quantity <= 200 : quantity <= 20)
-        }
-
-        let portionDescription: (Double, Bool) -> String = { fraction, isMaximum in
-            if isMaximum && fraction <= 0.0001 {
-                return "none fits today's remaining calories"
-            }
-
-            if let totalGrams = entry.servingSizeGrams,
-               let gramsPerPiece = inferredGramsPerPiece,
-               totalGrams > 0 {
-                let pieces = max(Int((totalGrams * fraction / gramsPerPiece).rounded()), 1)
-                return "about \(pieces) \(pieces == 1 ? "wafer roll" : "wafer rolls")"
-            }
-
-            if let option = groundedOption {
-                let wholeQuantity: Double
-                if selectedUnit == option.normalizedUnit,
-                   let selectedQuantity = entry.selectedServingQuantity,
-                   selectedQuantity.isFinite,
-                   selectedQuantity > 0 {
-                    wholeQuantity = selectedQuantity
-                } else {
-                    wholeQuantity = option.quantity(for: entry.servingSizeGrams ?? 0)
-                }
-                let scaledQuantity = wholeQuantity * fraction
-                let displayedQuantity: String
-                if countableUnits.contains(option.normalizedUnit) {
-                    displayedQuantity = String(Int(scaledQuantity.rounded()))
-                } else if abs(scaledQuantity.rounded() - scaledQuantity) < 0.05 {
-                    displayedQuantity = String(Int(scaledQuantity.rounded()))
-                } else {
-                    displayedQuantity = String(format: "%.1f", scaledQuantity)
-                }
-                return "about \(displayedQuantity) \(option.displayUnit(for: scaledQuantity))"
-            }
-
-            if let totalGrams = entry.servingSizeGrams,
-               let gramsPerHandful = inferredGramsPerHandful,
-               totalGrams > 0 {
-                let rawHandfuls = totalGrams * fraction / gramsPerHandful
-                let roundedHandfuls = max((rawHandfuls * 2).rounded() / 2, 0.5)
-                let amount = abs(roundedHandfuls.rounded() - roundedHandfuls) < 0.05
-                    ? String(Int(roundedHandfuls.rounded()))
-                    : String(format: "%.1f", roundedHandfuls)
-                let unit = abs(roundedHandfuls - 1) < 0.05 ? "handful" : "handfuls"
-                return "about \(amount) \(unit)"
-            }
-
-            if isMaximum && fraction >= 0.995 {
-                return "the full photographed portion"
-            }
-            if fraction >= 0.875 { return "nearly all of the photographed portion" }
-            if fraction >= 0.70 { return "about three-quarters of the photographed portion" }
-            if fraction >= 0.58 { return "about two-thirds of the photographed portion" }
-            if fraction >= 0.45 { return "about half of the photographed portion" }
-            if fraction >= 0.29 { return "about one-third of the photographed portion" }
-            if fraction >= 0.20 { return "about one-quarter of the photographed portion" }
-            return "a small taste of the photographed portion"
-        }
-
-        let suggestedDescription = portionDescription(suggestedFraction, false)
-        let maximumDescription = portionDescription(maximumFraction, true)
-        return "Suggested: \(suggestedDescription) ~\(suggestedCalories) cals\nMaximum: \(maximumDescription) ~\(maximumCalories) cals"
+        let suggestedCalories = Int((Double(entry.calories) * plan.suggestedFraction).rounded())
+        let maximumCalories = Int((Double(entry.calories) * plan.maximumFraction).rounded())
+        let maximumLine = plan.maximumFraction > 0
+            ? "Maximum: \(plan.maximumDescription) ~\(maximumCalories) cals"
+            : "Maximum: \(plan.maximumDescription)"
+        return "Suggested: \(plan.suggestedDescription) ~\(suggestedCalories) cals\n\(maximumLine)"
         }
     }
 
