@@ -697,12 +697,20 @@ struct MacroVerticalBar: View {
         return difference > 0 ? "\(amount)\(unit) left" : "\(amount)\(unit) over"
     }
 
+    private var hasHitProteinGoal: Bool {
+        label.caseInsensitiveCompare("Protein") == .orderedSame && goal > 0 && current >= goal
+    }
+
+    private var displayGradient: [Color] {
+        hasHitProteinGoal ? [.green, .green.opacity(0.72)] : gradient
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             Text(MacroValueFormatter.string(current))
                 .font(.system(.callout, design: .rounded, weight: .bold))
                 .foregroundStyle(
-                    LinearGradient(colors: gradient, startPoint: .top, endPoint: .bottom)
+                    LinearGradient(colors: displayGradient, startPoint: .top, endPoint: .bottom)
                 )
                 .contentTransition(.numericText())
                 .animation(.snappy, value: current)
@@ -715,9 +723,9 @@ struct MacroVerticalBar: View {
                     .frame(width: barWidth, height: barHeight)
 
                 Capsule()
-                    .fill(LinearGradient(colors: gradient, startPoint: .bottom, endPoint: .top))
+                    .fill(LinearGradient(colors: displayGradient, startPoint: .bottom, endPoint: .top))
                     .frame(width: barWidth, height: max(barWidth, barHeight * shownProgress))
-                    .shadow(color: (gradient.first ?? AppColors.calorie).opacity(0.4), radius: 5)
+                    .shadow(color: (displayGradient.first ?? AppColors.calorie).opacity(0.4), radius: 5)
             }
 
             VStack(spacing: 1) {
@@ -726,7 +734,7 @@ struct MacroVerticalBar: View {
                     .foregroundStyle(.primary)
                 Text(statusText)
                     .font(.system(.caption2, design: .rounded, weight: .medium))
-                    .foregroundStyle(current > goal && goal > 0 ? AppColors.calorie : .secondary)
+                    .foregroundStyle(hasHitProteinGoal ? Color.green : (current > goal && goal > 0 ? AppColors.calorie : .secondary))
             }
             .lineLimit(1)
             .minimumScaleFactor(0.6)

@@ -1209,7 +1209,7 @@ private struct WhatIfMealImpactSheet: View {
     private func achievementStatusColor(current: Double, goal: Double) -> Color {
         guard goal > 0, current > 0 else { return .secondary }
         let ratio = current / goal
-        if ratio >= 0.9 { return .green }
+        if ratio >= 1 { return .green }
         if ratio >= 0.6 { return .orange }
         return .red
     }
