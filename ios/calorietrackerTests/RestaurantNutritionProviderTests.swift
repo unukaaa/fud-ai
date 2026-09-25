@@ -59,10 +59,24 @@ struct RestaurantNutritionProviderTests {
         #expect(Self.fixture.menuItems.compactMap(\.provenance).allSatisfy { $0.country == "AU" && $0.sourceType == .verifiedRestaurant })
     }
 
+    @Test func zingerBoxUsesPublishedDefaultAndClarifiesOnlyUnknownComponents() async {
+        let result = await provider.match(RestaurantFoodQuery(rawText: "Zinger Box", restaurantID: "kfc_au", itemTerms: [], quantity: nil, modifierTerms: []))
+        #expect(result?.menuItem.id == "kfc-au-zinger-box-regular")
+        #expect(result?.menuItem.nutrition?.kilojoules == 4289)
+        #expect(result?.clarificationPlan.groups.map(\.id) == ["chicken", "first-side", "second-side", "drink"])
+    }
+
+    @Test func specifiedBoxChickenAndDrinkSuppressThoseQuestions() async {
+        let result = await provider.match(RestaurantFoodQuery(rawText: "Zinger Box with 3 Wicked Wings and Pepsi Max", restaurantID: "kfc_au", itemTerms: [], quantity: nil, modifierTerms: []))
+        #expect(result?.menuItem.id == "kfc-au-zinger-box-regular")
+        #expect(result?.clarificationPlan.groups.map(\.id) == [])
+    }
+
     private static let fixture: RestaurantNutritionDataset = {
         let provenance = NutritionProvenance(sourceType: .verifiedRestaurant, restaurantID: "kfc_au", sourceURL: "https://example.test/kfc", country: "AU", capturedDate: "2026-09-25", lastVerifiedDate: "2026-09-25", datasetVersion: "kfc-au-test-1", sourceQuality: "test fixture")
         let item = RestaurantMenuItem(id: "kfc-au-zinger-burger", name: "Zinger Burger", aliases: ["Zinger", "Zinger burger", "KFC Zinger"], category: "burger", servingQuantity: 1, servingUnit: "burger", servingWeightGrams: nil, nutrition: NutritionFacts(calories: 200, kilojoules: 2000, proteinGrams: nil, carbohydrateGrams: nil, fatGrams: nil), components: [], modifiers: [RestaurantModifier(id: "no_mayo", name: "No mayo", aliases: ["no mayo"], removesComponentID: "mayo", addsComponentID: nil, nutritionDelta: nil, provenance: nil)], variants: [], mealConfigurations: [RestaurantMealConfiguration(id: "order", name: "Order", aliases: [], componentIDs: [], clarificationGroups: [RestaurantClarificationGroup(id: "order", reason: .mealCompleteness, title: "Order", choices: [RestaurantClarificationChoice(id: "burger", title: "Burger only", value: "standalone")], allowsMultiple: false, optional: false)])], provenance: provenance)
         let wing = RestaurantMenuItem(id: "kfc-au-wicked-wing", name: "Wicked Wing", aliases: ["Wicked Wings"], category: "chicken", servingQuantity: 1, servingUnit: "piece", servingWeightGrams: nil, nutrition: NutritionFacts(calories: 100, kilojoules: 1000, proteinGrams: nil, carbohydrateGrams: nil, fatGrams: nil), components: [], modifiers: [], variants: [], mealConfigurations: [], provenance: provenance)
-        return RestaurantNutritionDataset(datasetVersion: "kfc-au-test-1", source: RestaurantDatasetSource(name: "Test fixture", version: "kfc-au-test-1", sourceURL: "https://example.test/kfc", country: "AU", lastUpdated: "2026-09-25"), restaurants: [Restaurant(id: "kfc_au", name: "KFC Australia", aliases: ["KFC"], country: "AU")], menuItems: [item, wing])
+        let box = RestaurantMenuItem(id: "kfc-au-zinger-box-regular", name: "Zinger Burger Box - Regular", aliases: ["Zinger Box", "Zinger Burger Box"], category: "meal", servingQuantity: 1, servingUnit: "box", servingWeightGrams: nil, nutrition: NutritionFacts(calories: 1025.8, kilojoules: 4289, proteinGrams: nil, carbohydrateGrams: nil, fatGrams: nil), components: [], modifiers: [], variants: [], mealConfigurations: [RestaurantMealConfiguration(id: "box-components", name: "Components", aliases: [], componentIDs: [], clarificationGroups: [RestaurantClarificationGroup(id: "chicken", reason: .component, title: "Chicken", choices: [], allowsMultiple: false, optional: false), RestaurantClarificationGroup(id: "drink", reason: .component, title: "Drink", choices: [], allowsMultiple: false, optional: false)])], provenance: provenance)
+        return RestaurantNutritionDataset(datasetVersion: "kfc-au-test-1", source: RestaurantDatasetSource(name: "Test fixture", version: "kfc-au-test-1", sourceURL: "https://example.test/kfc", country: "AU", lastUpdated: "2026-09-25"), restaurants: [Restaurant(id: "kfc_au", name: "KFC Australia", aliases: ["KFC"], country: "AU")], menuItems: [item, wing, box])
     }()
 }

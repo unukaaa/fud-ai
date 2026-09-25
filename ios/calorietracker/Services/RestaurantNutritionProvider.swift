@@ -21,7 +21,7 @@ struct RestaurantDatasetStore: Sendable {
 }
 
 enum RestaurantQueryNormalizer {
-    static func normalize(_ value: String) -> String {
+    nonisolated static func normalize(_ value: String) -> String {
         value
             .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
             .replacingOccurrences(of: "[’'`]", with: "", options: .regularExpression)
@@ -31,7 +31,7 @@ enum RestaurantQueryNormalizer {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func quantity(in value: String) -> Int? {
+    nonisolated static func quantity(in value: String) -> Int? {
         let pattern = #"\b(\d+)\b"#
         guard let match = value.range(of: pattern, options: .regularExpression) else { return nil }
         return Int(value[match].trimmingCharacters(in: .whitespacesAndNewlines))
@@ -50,11 +50,16 @@ struct RestaurantAliasMatcher: Sendable {
 
     func item(in text: String, items: [RestaurantMenuItem]) -> RestaurantMenuItem? {
         let normalized = RestaurantQueryNormalizer.normalize(text)
-        return items.first { item in
-            (item.aliases + [item.name]).contains {
-                normalized.contains(RestaurantQueryNormalizer.normalize($0))
+        return items
+            .compactMap { item -> (RestaurantMenuItem, Int)? in
+                let bestAliasLength = (item.aliases + [item.name])
+                    .map(RestaurantQueryNormalizer.normalize)
+                    .filter { normalized.contains($0) }
+                    .map(\.count)
+                    .max()
+                return bestAliasLength.map { (item, $0) }
             }
-        }
+            .max { $0.1 < $1.1 }?.0
     }
 }
 
@@ -101,6 +106,16 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
            !normalized.contains("box"),
            additionalComponents.isEmpty {
             plan = RestaurantClarificationPlan(groups: item.mealConfigurations.first?.clarificationGroups ?? [])
+        } else if item.id == "kfc-au-zinger-box-regular" {
+            let groups = item.mealConfigurations.first?.clarificationGroups ?? []
+            let resolvedGroups = groups.filter { group in
+                switch group.id {
+                case "chicken": return !normalized.contains("wicked") && !normalized.contains("recipe") && !normalized.contains("fillet") && !normalized.contains("tender")
+                case "drink": return !normalized.contains("pepsi") && !normalized.contains("7up") && !normalized.contains("mountain dew") && !normalized.contains("solo") && !normalized.contains("sunkist") && !normalized.contains("water") && !normalized.contains("juice")
+                default: return true
+                }
+            }
+            plan = RestaurantClarificationPlan(groups: resolvedGroups)
         } else {
             plan = RestaurantClarificationPlan(groups: [])
         }
