@@ -20,6 +20,45 @@ struct RestaurantNutritionProviderTests {
         #expect(result?.menuItem.name == "Zinger Burger")
     }
 
+    @Test func publicTextAnalysisRouteInfersRestaurantFromUniqueMenuAlias() async {
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "2 Wicked Wings",
+            store: RestaurantDatasetStore(dataset: Self.fixture)
+        )
+        #expect(result?.restaurant.id == "kfc_au")
+        #expect(result?.menuItem.id == "kfc-au-wicked-wing")
+        #expect(result?.quantity == 2)
+        #expect(result?.foodAnalysis?.nutritionSource == "Verified restaurant nutrition")
+    }
+
+    @Test func bundledDatasetLoadsAndRoutesBeforeAIFallback() async {
+        let store = RestaurantDatasetStore.bundled()
+        #expect(store?.dataset.datasetVersion == "restaurant-nutrition-v2-boost-v1-1")
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "KFC Zinger burger only",
+            store: store
+        )
+        #expect(result?.menuItem.id == "kfc-au-zinger-burger")
+        #expect(result?.foodAnalysis?.nutritionSource == "Verified restaurant nutrition")
+    }
+
+    @Test(arguments: [
+        ("Zinger burger", "kfc-au-zinger-burger"),
+        ("Zinger box", "kfc-au-zinger-box-regular"),
+        ("2 Wicked Wings", "kfc-au-wicked-wing"),
+        ("Boost Wondermelon", "boost-au-wondermelon"),
+        ("medium Wondermelon", "boost-au-wondermelon")
+    ])
+    func reportedDeviceQueriesUseVerifiedRoute(query: String, expectedItemID: String) async {
+        let result = await RestaurantNutritionAnalysisService.match(description: query)
+        #expect(result?.menuItem.id == expectedItemID)
+        if let analysis = result?.foodAnalysis {
+            #expect(analysis.nutritionSource == "Verified restaurant nutrition")
+        } else {
+            #expect(result?.clarificationPlan.isEmpty == false)
+        }
+    }
+
     @Test func noMayoModifierIsRetained() async {
         let result = await provider.match(RestaurantFoodQuery(rawText: "Zinger burger no mayo", restaurantID: "kfc_au", itemTerms: [], quantity: nil, modifierTerms: ["no mayo"]))
         #expect(result?.matchedModifiers.map(\.id) == ["no_mayo"])

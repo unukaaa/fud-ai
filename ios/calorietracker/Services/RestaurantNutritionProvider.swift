@@ -5,14 +5,19 @@ protocol RestaurantNutritionProvider {
 }
 
 struct RestaurantDatasetStore: Sendable {
+    private final class ResourceBundleToken {}
+
     let dataset: RestaurantNutritionDataset
 
     init(dataset: RestaurantNutritionDataset) {
         self.dataset = dataset
     }
 
-    static func bundled() -> RestaurantDatasetStore? {
-        guard let url = Bundle.main.url(forResource: "restaurant-nutrition-v1", withExtension: "json"),
+    static func bundled(in bundle: Bundle? = nil) -> RestaurantDatasetStore? {
+        let bundles = bundle.map { [$0] } ?? [Bundle.main, Bundle(for: ResourceBundleToken.self)]
+        guard let url = bundles.compactMap({
+            $0.url(forResource: "restaurant-nutrition-v1", withExtension: "json")
+        }).first,
               let data = try? Data(contentsOf: url),
               let dataset = try? JSONDecoder().decode(RestaurantNutritionDataset.self, from: data)
         else { return nil }
@@ -61,6 +66,15 @@ struct RestaurantAliasMatcher: Sendable {
             }
             .max { $0.1 < $1.1 }?.0
     }
+
+    func uniqueRestaurantForItem(in text: String, dataset: RestaurantNutritionDataset) -> Restaurant? {
+        let matchingRestaurantIDs = Set(dataset.menuItems.compactMap { item -> String? in
+            guard self.item(in: text, items: [item]) != nil else { return nil }
+            return item.provenance?.restaurantID
+        })
+        guard matchingRestaurantIDs.count == 1, let restaurantID = matchingRestaurantIDs.first else { return nil }
+        return dataset.restaurants.first { $0.id == restaurantID }
+    }
 }
 
 struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
@@ -76,6 +90,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let restaurant = query.restaurantID.flatMap { id in
             store.dataset.restaurants.first { $0.id == id }
         } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
+            ?? matcher.uniqueRestaurantForItem(in: query.rawText, dataset: store.dataset)
 
         guard let restaurant else { return nil }
         let restaurantItems = store.dataset.menuItems.filter { item in
@@ -161,7 +176,11 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
 
 enum RestaurantNutritionAnalysisService {
     static func match(description: String) async -> RestaurantMatch? {
-        guard let store = RestaurantDatasetStore.bundled() else { return nil }
+        await match(description: description, store: RestaurantDatasetStore.bundled())
+    }
+
+    static func match(description: String, store: RestaurantDatasetStore?) async -> RestaurantMatch? {
+        guard let store else { return nil }
         let provider = LocalRestaurantNutritionProvider(store: store)
         return await provider.match(RestaurantFoodQuery(
             rawText: description,
