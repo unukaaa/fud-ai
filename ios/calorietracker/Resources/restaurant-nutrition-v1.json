@@ -1,0 +1,82 @@
+{
+  "datasetVersion": "kfc-au-poc-1",
+  "source": {
+    "name": "KFC Australia proof-of-concept fixture",
+    "version": "kfc-au-poc-1",
+    "sourceURL": null,
+    "country": "AU",
+    "lastUpdated": "2026-09-25"
+  },
+  "restaurants": [
+    {
+      "id": "kfc_au",
+      "name": "KFC Australia",
+      "aliases": ["KFC", "KFC Australia"],
+      "country": "AU"
+    }
+  ],
+  "menuItems": [
+    {
+      "id": "kfc-au-zinger-burger",
+      "name": "Zinger Burger",
+      "aliases": ["Zinger", "Zinger burger", "KFC Zinger"],
+      "category": "burger",
+      "servingQuantity": 1,
+      "servingUnit": "burger",
+      "servingWeightGrams": null,
+      "nutrition": null,
+      "components": [],
+      "modifiers": [
+        {
+          "id": "no_mayo",
+          "name": "No mayo",
+          "aliases": ["no mayo", "without mayo"],
+          "removesComponentID": "mayo",
+          "addsComponentID": null,
+          "nutritionDelta": null,
+          "provenance": null
+        }
+      ],
+      "variants": [],
+      "mealConfigurations": [
+        {
+          "id": "kfc-au-zinger-order",
+          "name": "Order",
+          "aliases": ["order"],
+          "componentIDs": [],
+          "clarificationGroups": [
+            {
+              "id": "order",
+              "reason": "mealCompleteness",
+              "title": "Order",
+              "choices": [
+                {"id": "burger", "title": "Zinger Burger only", "value": "standalone"},
+                {"id": "meal", "title": "Zinger Meal", "value": "meal"},
+                {"id": "box", "title": "Zinger Box", "value": "box"},
+                {"id": "estimate", "title": "Use best estimate", "value": "best_estimate"}
+              ],
+              "allowsMultiple": false,
+              "optional": false
+            }
+          ]
+        }
+      ],
+      "provenance": null
+    },
+    {
+      "id": "kfc-au-wicked-wing",
+      "name": "Wicked Wing",
+      "aliases": ["Wicked Wing", "Wicked Wings", "KFC Wicked Wing"],
+      "category": "chicken",
+      "servingQuantity": 1,
+      "servingUnit": "piece",
+      "servingWeightGrams": null,
+      "nutrition": null,
+      "components": [],
+      "modifiers": [],
+      "variants": [],
+      "mealConfigurations": [],
+      "provenance": null
+    }
+  ]
+}
