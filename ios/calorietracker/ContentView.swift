@@ -1747,6 +1747,9 @@ private var dailyStepsTaskKey: String {
                             nutritionSource: result.nutritionSource,
                             nutritionSourceDetail: result.nutritionSourceDetail,
                             nutritionConfidence: result.nutritionConfidence,
+                            proteinIsKnown: result.proteinIsKnown,
+                            carbsAreKnown: result.carbsAreKnown,
+                            fatIsKnown: result.fatIsKnown,
                             servingSizeGrams: result.servingSizeGrams,
                             sugar: result.sugar,
                             addedSugar: result.addedSugar,
@@ -2629,53 +2632,63 @@ private struct SmartClarificationView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
-                Text("We estimated")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(prompt.estimate?.name ?? prompt.restaurantMatch?.menuItem.name ?? prompt.originalText)
-                    .font(.title3.bold())
-                if let calories = prompt.estimate?.calories {
-                    Text("~\(calories) cals")
-                        .font(.headline)
-                }
-                ForEach(prompt.groups) { group in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(group.title).font(.headline)
-                        ForEach(group.options, id: \.self) { option in
-                            Button {
-                                selections[group.id] = option
-                            } label: {
-                                HStack {
-                                    Text(option)
-                                    Spacer()
-                                    Image(systemName: selections[group.id] == option ? "checkmark.circle.fill" : "circle")
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("We estimated")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(prompt.estimate?.name ?? prompt.restaurantMatch?.menuItem.name ?? prompt.originalText)
+                        .font(.title3.bold())
+                    if let calories = prompt.estimate?.calories {
+                        Text("~\(calories) cals")
+                            .font(.headline)
+                    }
+                    ForEach(prompt.groups) { group in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(group.title).font(.headline)
+                            ForEach(group.options, id: \.self) { option in
+                                Button {
+                                    selections[group.id] = option
+                                } label: {
+                                    HStack {
+                                        Text(option)
+                                        Spacer()
+                                        Image(systemName: selections[group.id] == option ? "checkmark.circle.fill" : "circle")
+                                    }
                                 }
+                                .buttonStyle(.bordered)
+                                .tint(selections[group.id] == option ? AppColors.calorie : .secondary)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(selections[group.id] == option ? AppColors.calorie : .secondary)
                         }
                     }
                 }
-                Button("Continue") {
-                    let answers = prompt.groups.compactMap { group in
-                        selections[group.id].map { "\(group.title): \($0)" }
-                    }
-                    onResolve(answers.isEmpty ? "Use best estimate" : answers.joined(separator: "; "))
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(selections.isEmpty)
-                Button("Use best estimate") {
-                    onSkip()
-                }
-                .foregroundStyle(.secondary)
-                Spacer()
+                .padding(22)
             }
-            .padding(22)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Button("Continue") {
+                        let answers = prompt.groups.compactMap { group in
+                            selections[group.id].map { "\(group.title): \($0)" }
+                        }
+                        onResolve(answers.isEmpty ? "Use best estimate" : answers.joined(separator: "; "))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(selections.count < prompt.groups.count)
+                    Button("Use best estimate") {
+                        onSkip()
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 22)
+                .padding(.vertical, 12)
+                .background(.regularMaterial)
+            }
             .navigationTitle("Quick check")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
     }
 }
 

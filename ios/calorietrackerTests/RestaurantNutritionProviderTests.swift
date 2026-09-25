@@ -77,6 +77,19 @@ struct RestaurantNutritionProviderTests {
         #expect(abs((result?.nutrition?.calories ?? 0) - 300) < 0.001)
     }
 
+    @Test func wickedWingsPreserveCountUnitAndUnknownMacrosInReviewAnalysis() async {
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "2 Wicked Wings",
+            store: RestaurantDatasetStore(dataset: Self.fixture)
+        )?.foodAnalysis
+        #expect(result?.selectedServingQuantity == 2)
+        #expect(result?.selectedServingUnit == "piece")
+        #expect(result?.servingSizeIsKnown == false)
+        #expect(result?.proteinIsKnown == false)
+        #expect(result?.carbsAreKnown == false)
+        #expect(result?.fatIsKnown == false)
+    }
+
     @Test func combinedMealRetainsComponentsAndModifier() async {
         let result = await provider.match(RestaurantFoodQuery(rawText: "KFC Zinger burger no mayo and 2 Wicked Wings", restaurantID: nil, itemTerms: [], quantity: nil, modifierTerms: ["no mayo"]))
         #expect(result?.menuItem.id == "kfc-au-zinger-burger")
@@ -144,9 +157,11 @@ struct RestaurantNutritionProviderTests {
         #expect(analysis?.servingSizeIsKnown == false)
     }
 
-    @Test func vagueZingerMealFallsBackInsteadOfUsingBurgerCalories() async {
-        let result = await provider.match(RestaurantFoodQuery(rawText: "KFC Zinger Meal", restaurantID: nil, itemTerms: [], quantity: nil, modifierTerms: []))
-        #expect(result == nil)
+    @Test func standardZingerMealUsesPublishedMealInsteadOfBurgerCalories() async {
+        let result = await RestaurantNutritionAnalysisService.match(description: "KFC Zinger Meal")
+        #expect(result?.menuItem.id == "kfc-au-zinger-meal-regular")
+        #expect(result?.nutrition?.kilojoules == 3066)
+        #expect(result?.foodAnalysis?.nutritionSource == "Verified restaurant nutrition")
     }
 
     @Test func burgerOnlyClarificationDoesNotRepeat() async {

@@ -126,6 +126,9 @@ enum AustralianNutritionService {
     private static func bestMatch(for query: String) -> Match? {
         guard let foods = database?.foods else { return nil }
         let queryTokens = tokens(query)
+        if queryTokens.count == 1 {
+            return strongSingleFoodMatch(for: queryTokens, foods: foods)
+        }
         guard queryTokens.count >= 2 else { return nil }
 
         let ranked = foods.compactMap { food -> Match? in
@@ -160,6 +163,20 @@ enum AustralianNutritionService {
             if queryTokens.count <= 2 || best.score < 0.88 { return nil }
         }
         return best
+    }
+
+    private static func strongSingleFoodMatch(for queryTokens: Set<String>, foods: [Food]) -> Match? {
+        // A bare food name is only deterministic when it maps to a deliberately
+        // selected canonical AUSNUT record. This avoids guessing between food
+        // forms such as banana bread, cooked banana, chips, or prawns.
+        let canonicalIDs: [String: String] = [
+            "banana": "16502001"
+        ]
+        guard let token = queryTokens.first,
+              let foodID = canonicalIDs[token],
+              let food = foods.first(where: { $0.id == foodID })
+        else { return nil }
+        return Match(food: food, score: 1)
     }
 
     private static func confidence(for match: Match) -> String {

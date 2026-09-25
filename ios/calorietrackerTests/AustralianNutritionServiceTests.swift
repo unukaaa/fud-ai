@@ -28,6 +28,16 @@ struct AustralianNutritionServiceTests {
         #expect(result.calories > 150 && result.calories < 250)
     }
 
+    @Test func plainBananaUsesCanonicalAustralianRawBanana() {
+        let analysis = food(name: "Banana", grams: 118, calories: 105)
+        let result = AustralianNutritionService.applyingBestAustralianMatch(to: analysis)
+
+        #expect(result.nutritionSource == "AUSNUT Australia")
+        #expect(result.nutritionSourceDetail?.contains("Banana, cavendish, peeled, raw") == true)
+        #expect(result.calories == 113)
+        #expect(result.protein == 1.7)
+    }
+
     @Test func barcodeDataIsNeverOverridden() {
         var analysis = food(name: "Grilled chicken breast", grams: 200, calories: 999)
         analysis.productMetadata = FoodProductMetadata(

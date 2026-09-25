@@ -198,8 +198,8 @@ struct ServingUnitOption: Codable, Hashable, Identifiable {
     /// nutrition totals but no recoverable food weight. The numeric basis is a
     /// serving count, not grams; callers must keep `servingSizeGrams` nil when
     /// persisting this option.
-    static func loggedServing(quantity: Double = 1) -> ServingUnitOption {
-        ServingUnitOption(unit: "serving", gramsPerUnit: 1, quantity: quantity)
+    static func loggedServing(quantity: Double = 1, unit: String = "serving") -> ServingUnitOption {
+        ServingUnitOption(unit: unit, gramsPerUnit: 1, quantity: quantity)
     }
 
     func quantity(for totalGrams: Double) -> Double {

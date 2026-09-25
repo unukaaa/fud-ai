@@ -96,12 +96,6 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let restaurantItems = store.dataset.menuItems.filter { item in
             item.provenance?.restaurantID == nil || item.provenance?.restaurantID == restaurant.id
         }
-        if restaurant.id == "kfc_au",
-           normalized.contains("zinger meal"),
-           !normalized.contains("zinger box") {
-            return nil
-        }
-
         let item: RestaurantMenuItem?
         if restaurant.id == "kfc_au", normalized.contains("zinger box") {
             item = restaurantItems.first { $0.id == "kfc-au-zinger-box-regular" }
@@ -199,7 +193,10 @@ extension RestaurantMatch {
         let restaurantName = restaurant.name.replacingOccurrences(of: " Australia", with: "")
         let displayName = selectedVariant.map { "\(restaurantName) \(menuItem.name) - \($0.name)" }
             ?? "\(restaurantName) \(menuItem.name)"
-        let servingGrams = (menuItem.servingWeightGrams ?? 0) * Double(quantity)
+        let hasKnownServingWeight = menuItem.servingWeightGrams.map { $0 > 0 } ?? false
+        let servingReference = hasKnownServingWeight
+            ? (menuItem.servingWeightGrams ?? 0) * Double(quantity)
+            : Double(quantity)
         let provenance = selectedVariant?.provenance ?? menuItem.provenance
         let hasUnquantifiedModifier = matchedModifiers.contains { $0.nutritionDelta == nil }
         let detailSuffix = hasUnquantifiedModifier ? " · selected modifier not included in published totals" : ""
@@ -209,17 +206,25 @@ extension RestaurantMatch {
             protein: nutrition.proteinGrams ?? 0,
             carbs: nutrition.carbohydrateGrams ?? 0,
             fat: nutrition.fatGrams ?? 0,
-            servingSizeGrams: servingGrams,
+            servingSizeGrams: servingReference,
             emoji: restaurant.id == "boost_au" ? "🥤" : "🍔",
             sugar: facts["sugarsGrams"],
             fiber: facts["fibreGrams"],
             sodium: facts["sodiumMilligrams"],
-            servingSizeIsKnown: servingGrams > 0,
+            servingUnitOptions: hasKnownServingWeight ? [] : [
+                .loggedServing(quantity: Double(quantity), unit: menuItem.servingUnit ?? "serving")
+            ],
+            selectedServingUnit: menuItem.servingUnit,
+            selectedServingQuantity: Double(quantity),
+            servingSizeIsKnown: hasKnownServingWeight,
             nutritionSource: "Verified restaurant nutrition",
             nutritionSourceDetail: provenance.map { source in
                 [restaurant.name, source.datasetVersion].compactMap { $0 }.joined(separator: " · ")
             }.map { $0 + detailSuffix } ?? restaurant.name + detailSuffix,
-            nutritionConfidence: hasUnquantifiedModifier ? "Medium" : "High"
+            nutritionConfidence: hasUnquantifiedModifier ? "Medium" : "High",
+            proteinIsKnown: nutrition.proteinGrams != nil,
+            carbsAreKnown: nutrition.carbohydrateGrams != nil,
+            fatIsKnown: nutrition.fatGrams != nil
         )
     }
 }

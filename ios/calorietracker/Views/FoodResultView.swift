@@ -23,6 +23,9 @@ struct FoodResultView: View {
     let nutritionSource: String
     let nutritionSourceDetail: String?
     let nutritionConfidence: String
+    let proteinIsKnown: Bool
+    let carbsAreKnown: Bool
+    let fatIsKnown: Bool
 
     @State private var baseServingSizeGrams: Double
     @State private var servingUnitOptions: [ServingUnitOption]
@@ -124,6 +127,31 @@ struct FoodResultView: View {
         ServingAmountExpression.evaluate(servingSizeText)
     }
 
+    private var sourceBadge: String {
+        if nutritionSource == "Verified restaurant nutrition" {
+            let restaurant = nutritionSourceDetail?
+                .components(separatedBy: " · ").first?
+                .replacingOccurrences(of: " Australia", with: "")
+            let restaurantSuffix = restaurant.map { " · \($0)" } ?? ""
+            if nutritionConfidence == "High", proteinIsKnown, carbsAreKnown, fatIsKnown {
+                return "✓ Verified" + restaurantSuffix
+            }
+            return "⚠️ Partially verified" + restaurantSuffix
+        }
+        if nutritionSource == "AUSNUT Australia" { return "✓ AUSNUT" }
+        if nutritionConfidence == "Low" { return "✨ AI estimate" }
+        return "⚠️ Check estimate"
+    }
+
+    private var isFullyVerifiedSource: Bool {
+        nutritionSource == "AUSNUT Australia"
+            || (nutritionSource == "Verified restaurant nutrition"
+                && nutritionConfidence == "High"
+                && proteinIsKnown
+                && carbsAreKnown
+                && fatIsKnown)
+    }
+
     init(
         images: [UIImage] = [],
         emoji: String? = nil,
@@ -139,6 +167,9 @@ struct FoodResultView: View {
         nutritionSource: String = "AI estimate",
         nutritionSourceDetail: String? = nil,
         nutritionConfidence: String = "Low",
+        proteinIsKnown: Bool = true,
+        carbsAreKnown: Bool = true,
+        fatIsKnown: Bool = true,
         servingSizeGrams: Double = 100,
         sugar: Double? = nil,
         addedSugar: Double? = nil,
@@ -176,10 +207,13 @@ struct FoodResultView: View {
     ) {
         let normalizedServingUnitOptions = servingSizeIsKnown
             ? ServingUnitOption.normalizedOptions(servingUnitOptions, totalGrams: servingSizeGrams)
-            : [.loggedServing(quantity: servingSizeGrams)]
+            : [.loggedServing(
+                quantity: selectedServingQuantity ?? max(servingSizeGrams, 1),
+                unit: selectedServingUnit ?? "serving"
+            )]
         let preferredServingUnit = servingSizeIsKnown
             ? (FoodMeasurementSettings.preferGramsByDefault ? nil : selectedServingUnit)
-            : "serving"
+            : (selectedServingUnit ?? "serving")
         let initialServingUnitID = ServingUnitOption.initialUnitID(
             preferredUnit: preferredServingUnit,
             options: normalizedServingUnitOptions,
@@ -209,6 +243,9 @@ struct FoodResultView: View {
         self.nutritionSource = nutritionSource
         self.nutritionSourceDetail = nutritionSourceDetail
         self.nutritionConfidence = nutritionConfidence
+        self.proteinIsKnown = proteinIsKnown
+        self.carbsAreKnown = carbsAreKnown
+        self.fatIsKnown = fatIsKnown
         self._baseServingSizeGrams = State(initialValue: servingSizeGrams)
         self._servingUnitOptions = State(initialValue: normalizedServingUnitOptions)
         self._servingSizeIsKnown = State(initialValue: servingSizeIsKnown)
@@ -462,15 +499,15 @@ struct FoodResultView: View {
                                 Text(name)
                                     .font(.system(.title2, design: .rounded, weight: .bold))
                                 Spacer()
-                                Text("✨ AI estimate")
+                                Text(sourceBadge)
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
                             }
                             HStack(spacing: 8) {
                                 reviewSummaryValue("Calories", "\(scaledCalories) cals", .primary)
-                                reviewSummaryValue("Protein", MacroValueFormatter.withUnit(scaledProtein), .green)
-                                reviewSummaryValue("Carbs", MacroValueFormatter.withUnit(scaledCarbs), Color(hex: 0x0A84FF))
-                                reviewSummaryValue("Fat", MacroValueFormatter.withUnit(scaledFat), Color(hex: 0xFF9500))
+                                reviewSummaryValue("Protein", proteinIsKnown ? MacroValueFormatter.withUnit(scaledProtein) : "—", .green)
+                                reviewSummaryValue("Carbs", carbsAreKnown ? MacroValueFormatter.withUnit(scaledCarbs) : "—", Color(hex: 0x0A84FF))
+                                reviewSummaryValue("Fat", fatIsKnown ? MacroValueFormatter.withUnit(scaledFat) : "—", Color(hex: 0xFF9500))
                             }
                         }
                         .listRowBackground(Color.clear)
@@ -487,8 +524,8 @@ struct FoodResultView: View {
 
                     Section("Nutrition Source") {
                         HStack(spacing: 10) {
-                            Image(systemName: nutritionSource == "AUSNUT Australia" ? "checkmark.shield.fill" : "info.circle.fill")
-                                .foregroundStyle(nutritionSource == "AUSNUT Australia" ? Color.green : AppColors.calorie)
+                            Image(systemName: isFullyVerifiedSource ? "checkmark.shield.fill" : "info.circle.fill")
+                                .foregroundStyle(isFullyVerifiedSource ? Color.green : AppColors.calorie)
                             Text(nutritionSource)
                                 .font(.system(.body, design: .rounded, weight: .semibold))
                             Spacer()
@@ -565,7 +602,7 @@ struct FoodResultView: View {
                         )
                         ReviewNutritionValueRow(
                             label: "Protein",
-                            displayValue: MacroValueFormatter.string(scaledProtein),
+                            displayValue: proteinIsKnown ? MacroValueFormatter.string(scaledProtein) : "—",
                             editValue: MacroValueFormatter.string(scaledProtein),
                             unit: "g",
                             isUnlocked: nutritionUnlocked,
@@ -573,7 +610,7 @@ struct FoodResultView: View {
                         )
                         ReviewNutritionValueRow(
                             label: "Carbs",
-                            displayValue: MacroValueFormatter.string(scaledCarbs),
+                            displayValue: carbsAreKnown ? MacroValueFormatter.string(scaledCarbs) : "—",
                             editValue: MacroValueFormatter.string(scaledCarbs),
                             unit: "g",
                             isUnlocked: nutritionUnlocked,
@@ -581,7 +618,7 @@ struct FoodResultView: View {
                         )
                         ReviewNutritionValueRow(
                             label: "Fat",
-                            displayValue: MacroValueFormatter.string(scaledFat),
+                            displayValue: fatIsKnown ? MacroValueFormatter.string(scaledFat) : "—",
                             editValue: MacroValueFormatter.string(scaledFat),
                             unit: "g",
                             isUnlocked: nutritionUnlocked,

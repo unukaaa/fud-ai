@@ -48,6 +48,9 @@ struct GeminiService {
         var nutritionSource = "AI estimate"
         var nutritionSourceDetail: String? = nil
         var nutritionConfidence = "Low"
+        var proteinIsKnown = true
+        var carbsAreKnown = true
+        var fatIsKnown = true
 
         /// When the model also returned a breakdown, the header macros are the sum of that list.
         func withIngredientMacroTotals() -> FoodAnalysis {
