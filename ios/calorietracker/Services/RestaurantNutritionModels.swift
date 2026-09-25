@@ -16,6 +16,30 @@ struct NutritionFacts: Codable, Equatable, Sendable {
     var carbohydrateGrams: Double?
     var fatGrams: Double?
     var otherNutrients: [String: Double] = [:]
+
+    func scaled(by factor: Double) -> NutritionFacts {
+        NutritionFacts(
+            calories: calories.map { $0 * factor },
+            kilojoules: kilojoules.map { $0 * factor },
+            proteinGrams: proteinGrams.map { $0 * factor },
+            carbohydrateGrams: carbohydrateGrams.map { $0 * factor },
+            fatGrams: fatGrams.map { $0 * factor },
+            otherNutrients: otherNutrients.mapValues { $0 * factor }
+        )
+    }
+
+    static func adding(_ values: [NutritionFacts]) -> NutritionFacts? {
+        guard values.contains(where: { $0.calories != nil || $0.kilojoules != nil || $0.proteinGrams != nil || $0.carbohydrateGrams != nil || $0.fatGrams != nil }) else { return nil }
+        func sum(_ keyPath: KeyPath<NutritionFacts, Double?>) -> Double? {
+            let present = values.compactMap { $0[keyPath: keyPath] }
+            return present.isEmpty ? nil : present.reduce(0, +)
+        }
+        var other: [String: Double] = [:]
+        for value in values {
+            for (key, amount) in value.otherNutrients { other[key, default: 0] += amount }
+        }
+        return NutritionFacts(calories: sum(\.calories), kilojoules: sum(\.kilojoules), proteinGrams: sum(\.proteinGrams), carbohydrateGrams: sum(\.carbohydrateGrams), fatGrams: sum(\.fatGrams), otherNutrients: other)
+    }
 }
 
 struct NutritionProvenance: Codable, Equatable, Sendable {
@@ -150,6 +174,8 @@ struct RestaurantClarificationPlan: Codable, Equatable, Sendable {
 struct RestaurantMatchedComponent: Equatable, Sendable {
     let menuItem: RestaurantMenuItem
     let quantity: Int
+
+    var nutrition: NutritionFacts? { menuItem.nutrition?.scaled(by: Double(quantity)) }
 }
 
 struct RestaurantMatch: Equatable, Sendable {
@@ -160,4 +186,11 @@ struct RestaurantMatch: Equatable, Sendable {
     let additionalComponents: [RestaurantMatchedComponent]
     let clarificationPlan: RestaurantClarificationPlan
     let assumptions: [NutritionAssumption]
+
+    var nutrition: NutritionFacts? {
+        var values = [menuItem.nutrition?.scaled(by: Double(quantity))].compactMap { $0 }
+        values.append(contentsOf: additionalComponents.compactMap(\.nutrition))
+        values.append(contentsOf: matchedModifiers.compactMap { $0.nutritionDelta })
+        return NutritionFacts.adding(values)
+    }
 }

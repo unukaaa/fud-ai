@@ -1,82 +1,14 @@
 {
-  "datasetVersion": "kfc-au-poc-1",
-  "source": {
-    "name": "KFC Australia proof-of-concept fixture",
-    "version": "kfc-au-poc-1",
-    "sourceURL": null,
-    "country": "AU",
-    "lastUpdated": "2026-09-25"
-  },
-  "restaurants": [
-    {
-      "id": "kfc_au",
-      "name": "KFC Australia",
-      "aliases": ["KFC", "KFC Australia"],
-      "country": "AU"
-    }
-  ],
+  "datasetVersion": "kfc-au-verified-1",
+  "source": {"name": "KFC Australia official menu and nutrition guide", "version": "kfc-au-verified-1", "sourceURL": "https://www.kfc.com.au/nutrition-allergen", "country": "AU", "lastUpdated": "2026-09-25"},
+  "restaurants": [{"id": "kfc_au", "name": "KFC Australia", "aliases": ["KFC", "KFC Australia"], "country": "AU"}],
   "menuItems": [
-    {
-      "id": "kfc-au-zinger-burger",
-      "name": "Zinger Burger",
-      "aliases": ["Zinger", "Zinger burger", "KFC Zinger"],
-      "category": "burger",
-      "servingQuantity": 1,
-      "servingUnit": "burger",
-      "servingWeightGrams": null,
-      "nutrition": null,
-      "components": [],
-      "modifiers": [
-        {
-          "id": "no_mayo",
-          "name": "No mayo",
-          "aliases": ["no mayo", "without mayo"],
-          "removesComponentID": "mayo",
-          "addsComponentID": null,
-          "nutritionDelta": null,
-          "provenance": null
-        }
-      ],
-      "variants": [],
-      "mealConfigurations": [
-        {
-          "id": "kfc-au-zinger-order",
-          "name": "Order",
-          "aliases": ["order"],
-          "componentIDs": [],
-          "clarificationGroups": [
-            {
-              "id": "order",
-              "reason": "mealCompleteness",
-              "title": "Order",
-              "choices": [
-                {"id": "burger", "title": "Zinger Burger only", "value": "standalone"},
-                {"id": "meal", "title": "Zinger Meal", "value": "meal"},
-                {"id": "box", "title": "Zinger Box", "value": "box"},
-                {"id": "estimate", "title": "Use best estimate", "value": "best_estimate"}
-              ],
-              "allowsMultiple": false,
-              "optional": false
-            }
-          ]
-        }
-      ],
-      "provenance": null
-    },
-    {
-      "id": "kfc-au-wicked-wing",
-      "name": "Wicked Wing",
-      "aliases": ["Wicked Wing", "Wicked Wings", "KFC Wicked Wing"],
-      "category": "chicken",
-      "servingQuantity": 1,
-      "servingUnit": "piece",
-      "servingWeightGrams": null,
-      "nutrition": null,
-      "components": [],
-      "modifiers": [],
-      "variants": [],
-      "mealConfigurations": [],
-      "provenance": null
-    }
+    {"id": "kfc-au-zinger-burger", "name": "Zinger Burger", "aliases": ["Zinger", "Zinger burger", "KFC Zinger"], "category": "burger", "servingQuantity": 1, "servingUnit": "burger", "servingWeightGrams": null, "nutrition": {"calories": 447.9, "kilojoules": 1874, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [{"id": "no_mayo", "name": "No mayo", "aliases": ["no mayo", "without mayo"], "removesComponentID": "mayo", "addsComponentID": null, "nutritionDelta": null, "provenance": null}], "variants": [], "mealConfigurations": [{"id": "kfc-au-zinger-order", "name": "Order", "aliases": ["order"], "componentIDs": ["kfc-au-zinger-burger", "kfc-au-regular-chips", "kfc-au-regular-pepsi-max"], "clarificationGroups": [{"id": "order", "reason": "mealCompleteness", "title": "Order", "choices": [{"id": "burger", "title": "Zinger Burger only", "value": "standalone"}, {"id": "meal", "title": "Zinger Meal", "value": "meal"}, {"id": "box", "title": "Zinger Box", "value": "box"}, {"id": "estimate", "title": "Use best estimate", "value": "best_estimate"}], "allowsMultiple": false, "optional": false}]}], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/menu/burgers/zinger-burger", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia menu; energy published in kJ; calories converted using 1 kcal = 4.184 kJ"}},
+    {"id": "kfc-au-original-crispy-burger", "name": "Original Crispy Burger", "aliases": ["Original Crispy Burger", "Original Burger", "KFC Original Burger"], "category": "burger", "servingQuantity": 1, "servingUnit": "burger", "servingWeightGrams": null, "nutrition": {"calories": 447.9, "kilojoules": 1874, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/nutrition-allergen", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia nutrition guide"}},
+    {"id": "kfc-au-wicked-wing", "name": "Wicked Wing", "aliases": ["Wicked Wing", "Wicked Wings", "KFC Wicked Wing"], "category": "chicken", "servingQuantity": 1, "servingUnit": "piece", "servingWeightGrams": null, "nutrition": {"calories": 129.9, "kilojoules": 543, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/nutrition-allergen", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia 3 Wicked Wings listing (1629 kJ) divided by 3; derived per-piece value"}},
+    {"id": "kfc-au-regular-chips", "name": "Regular Chips", "aliases": ["chips", "regular chips", "KFC chips", "chippies"], "category": "side", "servingQuantity": 1, "servingUnit": "serve", "servingWeightGrams": null, "nutrition": {"calories": 283.5, "kilojoules": 1186, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/menu/burgers/zinger-burger-combo", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia menu"}},
+    {"id": "kfc-au-regular-pepsi-max", "name": "Regular Pepsi Max", "aliases": ["Pepsi Max", "regular Pepsi Max", "KFC Pepsi Max"], "category": "drink", "servingQuantity": 1, "servingUnit": "drink", "servingWeightGrams": null, "nutrition": {"calories": 1.4, "kilojoules": 6, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/menu/burgers/zinger-burger-combo", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia menu"}},
+    {"id": "kfc-au-zinger-meal-regular", "name": "Zinger Meal - Regular", "aliases": ["Zinger Meal", "Zinger combo", "regular Zinger meal"], "category": "meal", "servingQuantity": 1, "servingUnit": "meal", "servingWeightGrams": null, "nutrition": {"calories": 732.3, "kilojoules": 3066, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [{"id": "kfc-au-zinger-meal-regular-components", "name": "Components", "aliases": [], "componentIDs": ["kfc-au-zinger-burger", "kfc-au-regular-chips", "kfc-au-regular-pepsi-max"], "clarificationGroups": []}], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/menu/burgers/zinger-burger-combo", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia menu and nutrition guide"}},
+    {"id": "kfc-au-zinger-box-regular", "name": "Zinger Burger Box - Regular", "aliases": ["Zinger Box", "Zinger Burger Box", "regular Zinger box"], "category": "meal", "servingQuantity": 1, "servingUnit": "box", "servingWeightGrams": null, "nutrition": {"calories": 1025.8, "kilojoules": 4289, "proteinGrams": null, "carbohydrateGrams": null, "fatGrams": null, "otherNutrients": {}}, "components": [], "modifiers": [], "variants": [], "mealConfigurations": [{"id": "kfc-au-zinger-box-regular-components", "name": "Components", "aliases": [], "componentIDs": ["kfc-au-zinger-burger", "kfc-au-regular-chips", "kfc-au-regular-pepsi-max"], "clarificationGroups": []}], "provenance": {"sourceType": "verifiedRestaurant", "restaurantID": "kfc_au", "sourceURL": "https://www.kfc.com.au/menu/boxed-meals/zinger-burger-box", "country": "AU", "capturedDate": "2026-09-25", "lastVerifiedDate": "2026-09-25", "datasetVersion": "kfc-au-verified-1", "sourceQuality": "official KFC Australia menu and nutrition guide"}}
   ]
 }
