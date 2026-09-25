@@ -229,6 +229,27 @@ struct RestaurantNutritionProviderTests {
         #expect(result?.resolvedComponents.map(\.sourceItemID) == ["mcd-au-big-mac", "mcd-au-fries-medium", "mcd-au-coke-zero-medium"])
     }
 
+    @Test(arguments: [
+        ("Medium with Coke No Sugar", "mcd-au-big-mac-meal-medium-zero", 876, ["mcd-au-big-mac", "mcd-au-fries-medium", "mcd-au-coke-zero-medium"]),
+        ("Large with Coke No Sugar", "mcd-au-big-mac-meal-large-zero", 950, ["mcd-au-big-mac", "mcd-au-fries-large", "mcd-au-coke-zero-large"])
+    ])
+    func bigMacMealQuickCheckSelectionPreservesParentAndAllComponents(
+        choice: String,
+        variantID: String,
+        calories: Int,
+        componentIDs: [String]
+    ) async {
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "Big Mac meal\nClarification: Size: \(choice)"
+        )
+        #expect(result?.menuItem.id == "mcd-au-big-mac-meal")
+        #expect(result?.selectedVariant?.id == variantID)
+        #expect(result?.quantity == 1)
+        #expect(result?.foodAnalysis?.calories == calories)
+        #expect(result?.resolvedComponents.compactMap(\.sourceItemID) == componentIDs)
+        #expect(result?.resolvedComponents.last?.sourceItemID != "mcd-au-big-mac-meal")
+    }
+
     @Test func friesClarifySizeButMediumFriesResolveDirectly() async {
         let ambiguous = await RestaurantNutritionAnalysisService.match(description: "fries")
         let medium = await RestaurantNutritionAnalysisService.match(description: "medium fries")

@@ -128,9 +128,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let item = selectedItemID.flatMap { targetID in restaurantItems.first { $0.id == targetID } }
             ?? initiallyMatchedItem
 
-        let selectedVariant = item.variants.first { variant in
-            (variant.aliases + [variant.name]).map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
-        }
+        let selectedVariant = selectedVariant(in: query.rawText, for: item)
 
         let quantitySelectsVariant = query.quantity.map { quantity in
             guard let selectedVariant else { return false }
@@ -257,6 +255,46 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             )
         }
         return explicitlyLabelled + unlabelled
+    }
+
+    private func selectedVariant(
+        in text: String,
+        for item: RestaurantMenuItem
+    ) -> RestaurantMenuItemVariant? {
+        guard !item.variants.isEmpty else { return nil }
+        let clarificationSegments = text
+            .components(separatedBy: "Clarification:")
+            .dropFirst()
+            .joined(separator: " ")
+            .split(separator: ";")
+            .map { RestaurantQueryNormalizer.normalize(String($0)) }
+        let explicitVariant = clarificationSegments.compactMap { segment in
+            item.variants
+                .compactMap { variant -> (RestaurantMenuItemVariant, Int)? in
+                    let matchLength = (variant.aliases + [variant.name])
+                        .map(RestaurantQueryNormalizer.normalize)
+                        .filter(segment.contains)
+                        .map(\.count)
+                        .max()
+                    return matchLength.map { (variant, $0) }
+                }
+                .max { $0.1 < $1.1 }?.0
+        }.first
+        if let explicitVariant { return explicitVariant }
+
+        let normalizedParent = RestaurantQueryNormalizer.normalize(
+            text.components(separatedBy: "Clarification:").first ?? text
+        )
+        return item.variants
+            .compactMap { variant -> (RestaurantMenuItemVariant, Int)? in
+                let matchLength = (variant.aliases + [variant.name])
+                    .map(RestaurantQueryNormalizer.normalize)
+                    .filter(normalizedParent.contains)
+                    .map(\.count)
+                    .max()
+                return matchLength.map { (variant, $0) }
+            }
+            .max { $0.1 < $1.1 }?.0
     }
 
     private func choiceTerms(for choice: RestaurantClarificationChoice) -> [String] {
