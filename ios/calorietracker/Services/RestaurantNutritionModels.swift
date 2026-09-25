@@ -90,6 +90,10 @@ struct RestaurantMenuItemVariant: Codable, Equatable, Sendable, Identifiable {
     let aliases: [String]
     let nutrition: NutritionFacts?
     let provenance: NutritionProvenance?
+    var servingQuantity: Double? = nil
+    var servingUnit: String? = nil
+    var servingWeightGrams: Double? = nil
+    var componentIDs: [String]? = nil
 }
 
 struct RestaurantMealConfiguration: Codable, Equatable, Sendable, Identifiable {

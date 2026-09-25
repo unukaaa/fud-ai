@@ -55,6 +55,7 @@ struct RestaurantAliasMatcher: Sendable {
 
     func item(in text: String, items: [RestaurantMenuItem]) -> RestaurantMenuItem? {
         let normalized = RestaurantQueryNormalizer.normalize(text)
+        let explicitlyRequestsMeal = normalized.contains(" meal") || normalized.hasSuffix("meal") || normalized.contains(" combo") || normalized.hasSuffix("combo")
         return items
             .compactMap { item -> (RestaurantMenuItem, Int)? in
                 let bestAliasLength = (item.aliases + [item.name])
@@ -62,16 +63,28 @@ struct RestaurantAliasMatcher: Sendable {
                     .filter { normalized.contains($0) }
                     .map(\.count)
                     .max()
-                return bestAliasLength.map { (item, $0) }
+                return bestAliasLength.map { length in
+                    let mealPriority = explicitlyRequestsMeal && item.category == "meal" ? 10_000 : 0
+                    return (item, length + mealPriority)
+                }
             }
             .max { $0.1 < $1.1 }?.0
     }
 
     func uniqueRestaurantForItem(in text: String, dataset: RestaurantNutritionDataset) -> Restaurant? {
-        let matchingRestaurantIDs = Set(dataset.menuItems.compactMap { item -> String? in
-            guard self.item(in: text, items: [item]) != nil else { return nil }
-            return item.provenance?.restaurantID
-        })
+        let normalized = RestaurantQueryNormalizer.normalize(text)
+        let matches = dataset.menuItems.compactMap { item -> (String, Int)? in
+            guard let restaurantID = item.provenance?.restaurantID,
+                  let length = (item.aliases + [item.name])
+                    .map(RestaurantQueryNormalizer.normalize)
+                    .filter({ normalized.contains($0) })
+                    .map(\.count)
+                    .max()
+            else { return nil }
+            return (restaurantID, length)
+        }
+        guard let longest = matches.map(\.1).max() else { return nil }
+        let matchingRestaurantIDs = Set(matches.filter { $0.1 == longest }.map(\.0))
         guard matchingRestaurantIDs.count == 1, let restaurantID = matchingRestaurantIDs.first else { return nil }
         return dataset.restaurants.first { $0.id == restaurantID }
     }
@@ -110,8 +123,16 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         guard let item else { return nil }
 
         let selectedVariant = item.variants.first { variant in
-            variant.aliases.map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
+            (variant.aliases + [variant.name]).map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
         }
+
+        let quantitySelectsVariant = query.quantity.map { quantity in
+            guard let selectedVariant else { return false }
+            return (selectedVariant.aliases + [selectedVariant.name]).contains {
+                RestaurantQueryNormalizer.quantity(in: $0) == quantity
+            }
+        } ?? false
+        let parentQuantity = quantitySelectsVariant ? 1 : max(query.quantity ?? 1, 1)
 
         let modifiers = item.modifiers.filter { modifier in
             modifier.aliases.contains { alias in
@@ -155,24 +176,43 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             plan = RestaurantClarificationPlan(groups: resolvedGroups)
         } else if !item.variants.isEmpty && selectedVariant == nil {
             let choices = item.variants.map { RestaurantClarificationChoice(id: $0.id, title: $0.name, value: $0.id) } + [RestaurantClarificationChoice(id: "best_estimate", title: "Use best estimate", value: "best_estimate")]
-            plan = RestaurantClarificationPlan(groups: [RestaurantClarificationGroup(id: "size", reason: .size, title: "Size", choices: choices, allowsMultiple: false, optional: false)])
+            let quantityVariants = item.variants.allSatisfy { $0.servingQuantity != nil && $0.servingUnit != nil }
+            plan = RestaurantClarificationPlan(groups: [RestaurantClarificationGroup(
+                id: quantityVariants ? "quantity" : "size",
+                reason: quantityVariants ? .quantity : .size,
+                title: quantityVariants ? "Quantity" : "Size",
+                choices: choices,
+                allowsMultiple: false,
+                optional: false
+            )])
         } else {
             plan = RestaurantClarificationPlan(groups: [])
         }
 
-        let resolvedComponents = resolvedComponentSelections(
+        let clarifiedComponents = resolvedComponentSelections(
             in: query.rawText,
             groups: item.mealConfigurations.first?.clarificationGroups ?? []
         )
+        let variantComponents = (selectedVariant?.componentIDs ?? []).compactMap { componentID in
+            if let component = store.dataset.menuItems.first(where: { $0.id == componentID }) {
+                return RestaurantResolvedComponent(groupID: componentID, name: component.name, quantity: 1, sourceItemID: componentID)
+            }
+            for component in store.dataset.menuItems {
+                if let variant = component.variants.first(where: { $0.id == componentID }) {
+                    return RestaurantResolvedComponent(groupID: componentID, name: "\(variant.name) \(component.name)", quantity: 1, sourceItemID: componentID)
+                }
+            }
+            return nil
+        }
 
         return RestaurantMatch(
             restaurant: restaurant,
             menuItem: item,
-            quantity: max(query.quantity ?? 1, 1),
+            quantity: parentQuantity,
             selectedVariant: selectedVariant,
             matchedModifiers: modifiers,
             additionalComponents: additionalComponents,
-            resolvedComponents: resolvedComponents,
+            resolvedComponents: clarifiedComponents + variantComponents,
             clarificationPlan: plan,
             assumptions: []
         )
@@ -232,10 +272,13 @@ extension RestaurantMatch {
         let restaurantName = restaurant.name.replacingOccurrences(of: " Australia", with: "")
         let displayName = selectedVariant.map { "\(restaurantName) \(menuItem.name) - \($0.name)" }
             ?? "\(restaurantName) \(menuItem.name)"
-        let hasKnownServingWeight = menuItem.servingWeightGrams.map { $0 > 0 } ?? false
+        let servingWeightGrams = selectedVariant?.servingWeightGrams ?? menuItem.servingWeightGrams
+        let servingQuantity = selectedVariant?.servingQuantity ?? Double(quantity)
+        let servingUnit = selectedVariant?.servingUnit ?? menuItem.servingUnit
+        let hasKnownServingWeight = servingWeightGrams.map { $0 > 0 } ?? false
         let servingReference = hasKnownServingWeight
-            ? (menuItem.servingWeightGrams ?? 0) * Double(quantity)
-            : Double(quantity)
+            ? (servingWeightGrams ?? 0) * Double(quantity)
+            : servingQuantity
         let provenance = selectedVariant?.provenance ?? menuItem.provenance
         let hasUnquantifiedModifier = matchedModifiers.contains { $0.nutritionDelta == nil }
         let detailSuffix = hasUnquantifiedModifier ? " · selected modifier not included in published totals" : ""
@@ -251,10 +294,10 @@ extension RestaurantMatch {
             fiber: facts["fibreGrams"],
             sodium: facts["sodiumMilligrams"],
             servingUnitOptions: hasKnownServingWeight ? [] : [
-                .loggedServing(quantity: Double(quantity), unit: menuItem.servingUnit ?? "serving")
+                .loggedServing(quantity: servingQuantity, unit: servingUnit ?? "serving")
             ],
-            selectedServingUnit: menuItem.servingUnit,
-            selectedServingQuantity: Double(quantity),
+            selectedServingUnit: servingUnit,
+            selectedServingQuantity: servingQuantity,
             servingSizeIsKnown: hasKnownServingWeight,
             resolvedComponents: resolvedComponents,
             nutritionSource: "Verified restaurant nutrition",

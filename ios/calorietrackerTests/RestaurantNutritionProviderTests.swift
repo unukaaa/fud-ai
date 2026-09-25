@@ -33,7 +33,7 @@ struct RestaurantNutritionProviderTests {
 
     @Test func bundledDatasetLoadsAndRoutesBeforeAIFallback() async {
         let store = RestaurantDatasetStore.bundled()
-        #expect(store?.dataset.datasetVersion == "restaurant-nutrition-v2-boost-v1-1")
+        #expect(store?.dataset.datasetVersion == "restaurant-nutrition-v2-mcdonalds-poc-1")
         let result = await RestaurantNutritionAnalysisService.match(
             description: "KFC Zinger burger only",
             store: store
@@ -199,6 +199,75 @@ struct RestaurantNutritionProviderTests {
         let result = await provider.match(RestaurantFoodQuery(rawText: text, restaurantID: nil, itemTerms: [], quantity: nil, modifierTerms: []))
         #expect(result?.menuItem.id == "kfc-au-zinger-box-regular")
         #expect(result?.clarificationPlan.isEmpty == true)
+    }
+
+    @Test(arguments: ["Big Mac", "maccas big mac"])
+    func bigMacUsesDeterministicMcDonaldsRoute(query: String) async {
+        let result = await RestaurantNutritionAnalysisService.match(description: query)
+        #expect(result?.restaurant.id == "mcdonalds_au")
+        #expect(result?.menuItem.id == "mcd-au-big-mac")
+        #expect(result?.foodAnalysis?.calories == 557)
+        #expect(result?.foodAnalysis?.nutritionConfidence == "High")
+    }
+
+    @Test func bigMacMealNeverUsesBurgerOnlyNutrition() async {
+        let result = await RestaurantNutritionAnalysisService.match(description: "Big Mac meal")
+        #expect(result?.menuItem.id == "mcd-au-big-mac-meal")
+        #expect(result?.foodAnalysis == nil)
+        #expect(result?.clarificationPlan.groups.map(\.reason) == [.size])
+    }
+
+    @Test func explicitBigMacMealResolvesVerifiedComponentsWithoutRedundantQuestions() async {
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "Big Mac meal with medium fries and Coke No Sugar"
+        )
+        #expect(result?.menuItem.id == "mcd-au-big-mac-meal")
+        #expect(result?.selectedVariant?.id == "mcd-au-big-mac-meal-medium-zero")
+        #expect(result?.quantity == 1)
+        #expect(result?.clarificationPlan.isEmpty == true)
+        #expect(result?.foodAnalysis?.calories == 876)
+        #expect(result?.resolvedComponents.map(\.sourceItemID) == ["mcd-au-big-mac", "mcd-au-fries-medium", "mcd-au-coke-zero-medium"])
+    }
+
+    @Test func friesClarifySizeButMediumFriesResolveDirectly() async {
+        let ambiguous = await RestaurantNutritionAnalysisService.match(description: "fries")
+        let medium = await RestaurantNutritionAnalysisService.match(description: "medium fries")
+        let chips = await RestaurantNutritionAnalysisService.match(description: "medium chips")
+        #expect(ambiguous?.clarificationPlan.groups.map(\.reason) == [.size])
+        #expect(medium?.selectedVariant?.id == "mcd-au-fries-medium")
+        #expect(medium?.foodAnalysis?.calories == 316)
+        #expect(chips?.selectedVariant?.id == "mcd-au-fries-medium")
+    }
+
+    @Test(arguments: [("6 nuggets", "mcd-au-mcnuggets-6", 216, 6.0), ("10 nuggets", "mcd-au-mcnuggets-10", 360, 10.0)])
+    func nuggetPackQuantitySelectsVariantWithoutMultiplyingParent(query: String, variantID: String, calories: Int, pieces: Double) async {
+        let result = await RestaurantNutritionAnalysisService.match(description: query)
+        #expect(result?.selectedVariant?.id == variantID)
+        #expect(result?.quantity == 1)
+        #expect(result?.foodAnalysis?.calories == calories)
+        #expect(result?.foodAnalysis?.selectedServingQuantity == pieces)
+        #expect(result?.foodAnalysis?.selectedServingUnit == "pieces")
+    }
+
+    @Test func ambiguousNuggetsAskOnlyQuantity() async {
+        let result = await RestaurantNutritionAnalysisService.match(description: "nuggets")
+        #expect(result?.clarificationPlan.groups.count == 1)
+        #expect(result?.clarificationPlan.groups.first?.reason == .quantity)
+    }
+
+    @Test func unquantifiedBigMacModifierIsPreservedWithoutInventingDelta() async {
+        let result = await RestaurantNutritionAnalysisService.match(description: "Big Mac no sauce")
+        #expect(result?.matchedModifiers.map(\.id) == ["no-sauce"])
+        #expect(result?.matchedModifiers.first?.nutritionDelta == nil)
+        #expect(result?.foodAnalysis?.nutritionConfidence == "Medium")
+        #expect(result?.foodAnalysis?.nutritionSourceDetail?.contains("not included") == true)
+    }
+
+    @Test func unsupportedBigMacMealConfigurationDoesNotClaimVerifiedTotals() async {
+        let result = await RestaurantNutritionAnalysisService.match(description: "Big Mac meal with orange juice")
+        #expect(result?.menuItem.id == "mcd-au-big-mac-meal")
+        #expect(result?.foodAnalysis == nil)
+        #expect(result?.clarificationPlan.isEmpty == false)
     }
 
     private static let fixture: RestaurantNutritionDataset = {
