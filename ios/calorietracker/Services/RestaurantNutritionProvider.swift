@@ -72,6 +72,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
     }
 
     func match(_ query: RestaurantFoodQuery) async -> RestaurantMatch? {
+        let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
         let restaurant = query.restaurantID.flatMap { id in
             store.dataset.restaurants.first { $0.id == id }
         } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
@@ -80,17 +81,29 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let restaurantItems = store.dataset.menuItems.filter { item in
             item.provenance?.restaurantID == nil || item.provenance?.restaurantID == restaurant.id
         }
-        guard let item = matcher.item(in: query.rawText, items: restaurantItems) else { return nil }
+        if restaurant.id == "kfc_au",
+           normalized.contains("zinger meal"),
+           !normalized.contains("zinger box") {
+            return nil
+        }
 
-        let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
+        let item: RestaurantMenuItem?
+        if restaurant.id == "kfc_au", normalized.contains("zinger box") {
+            item = restaurantItems.first { $0.id == "kfc-au-zinger-box-regular" }
+        } else {
+            item = matcher.item(in: query.rawText, items: restaurantItems)
+        }
+        guard let item else { return nil }
+
         let selectedVariant = item.variants.first { variant in
             variant.aliases.map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
         }
 
         let modifiers = item.modifiers.filter { modifier in
-            query.modifierTerms.contains { term in
-                modifier.aliases.contains { alias in
-                    RestaurantQueryNormalizer.normalize(term) == RestaurantQueryNormalizer.normalize(alias)
+            modifier.aliases.contains { alias in
+                let normalizedAlias = RestaurantQueryNormalizer.normalize(alias)
+                return normalized.contains(normalizedAlias) || query.modifierTerms.contains { term in
+                    RestaurantQueryNormalizer.normalize(term) == normalizedAlias
                 }
             }
         }
@@ -108,13 +121,19 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         if item.id == "kfc-au-zinger-burger",
            !normalized.contains("meal"),
            !normalized.contains("box"),
+           !normalized.contains("burger only"),
+           !normalized.contains("standalone"),
+           !normalized.contains("best estimate"),
            additionalComponents.isEmpty {
             plan = RestaurantClarificationPlan(groups: item.mealConfigurations.first?.clarificationGroups ?? [])
         } else if item.id == "kfc-au-zinger-box-regular" {
             let groups = item.mealConfigurations.first?.clarificationGroups ?? []
             let resolvedGroups = groups.filter { group in
+                if normalized.contains("best estimate") { return false }
                 switch group.id {
                 case "chicken": return !normalized.contains("wicked") && !normalized.contains("recipe") && !normalized.contains("fillet") && !normalized.contains("tender")
+                case "first-side": return !normalized.contains("first side")
+                case "second-side": return !normalized.contains("second side")
                 case "drink": return !normalized.contains("pepsi") && !normalized.contains("7up") && !normalized.contains("mountain dew") && !normalized.contains("solo") && !normalized.contains("sunkist") && !normalized.contains("water") && !normalized.contains("juice")
                 default: return true
                 }
@@ -136,6 +155,52 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             additionalComponents: additionalComponents,
             clarificationPlan: plan,
             assumptions: []
+        )
+    }
+}
+
+enum RestaurantNutritionAnalysisService {
+    static func match(description: String) async -> RestaurantMatch? {
+        guard let store = RestaurantDatasetStore.bundled() else { return nil }
+        let provider = LocalRestaurantNutritionProvider(store: store)
+        return await provider.match(RestaurantFoodQuery(
+            rawText: description,
+            restaurantID: nil,
+            itemTerms: [],
+            quantity: RestaurantQueryNormalizer.quantity(in: description),
+            modifierTerms: []
+        ))
+    }
+}
+
+extension RestaurantMatch {
+    var foodAnalysis: GeminiService.FoodAnalysis? {
+        guard let nutrition else { return nil }
+        let facts = nutrition.otherNutrients
+        let restaurantName = restaurant.name.replacingOccurrences(of: " Australia", with: "")
+        let displayName = selectedVariant.map { "\(restaurantName) \(menuItem.name) - \($0.name)" }
+            ?? "\(restaurantName) \(menuItem.name)"
+        let servingGrams = (menuItem.servingWeightGrams ?? 0) * Double(quantity)
+        let provenance = selectedVariant?.provenance ?? menuItem.provenance
+        let hasUnquantifiedModifier = matchedModifiers.contains { $0.nutritionDelta == nil }
+        let detailSuffix = hasUnquantifiedModifier ? " · selected modifier not included in published totals" : ""
+        return GeminiService.FoodAnalysis(
+            name: displayName,
+            calories: Int((nutrition.calories ?? ((nutrition.kilojoules ?? 0) / 4.184)).rounded()),
+            protein: nutrition.proteinGrams ?? 0,
+            carbs: nutrition.carbohydrateGrams ?? 0,
+            fat: nutrition.fatGrams ?? 0,
+            servingSizeGrams: servingGrams,
+            emoji: restaurant.id == "boost_au" ? "🥤" : "🍔",
+            sugar: facts["sugarsGrams"],
+            fiber: facts["fibreGrams"],
+            sodium: facts["sodiumMilligrams"],
+            servingSizeIsKnown: servingGrams > 0,
+            nutritionSource: "Verified restaurant nutrition",
+            nutritionSourceDetail: provenance.map { source in
+                [restaurant.name, source.datasetVersion].compactMap { $0 }.joined(separator: " · ")
+            }.map { $0 + detailSuffix } ?? restaurant.name + detailSuffix,
+            nutritionConfidence: hasUnquantifiedModifier ? "Medium" : "High"
         )
     }
 }

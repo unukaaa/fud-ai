@@ -1812,7 +1812,15 @@ private var dailyStepsTaskKey: String {
             .sheet(item: $clarificationPrompt) { prompt in
                 SmartClarificationView(prompt: prompt, onSkip: {
                     clarificationPrompt = nil
-                    presentFoodResult(prompt.estimate)
+                    if let estimate = prompt.estimate {
+                        presentFoodResult(estimate)
+                    } else {
+                        startTextAnalysis(
+                            prompt.originalText,
+                            allowClarification: false,
+                            allowRestaurantLookup: false
+                        )
+                    }
                 }) { answer in
                     clarificationPrompt = nil
                     startTextAnalysis(prompt.originalText + "\nClarification: " + answer, allowClarification: false)
@@ -2392,12 +2400,40 @@ private var dailyStepsTaskKey: String {
         }
     }
 
-    private func startTextAnalysis(_ description: String, allowClarification: Bool = true) {
+    private func startTextAnalysis(
+        _ description: String,
+        allowClarification: Bool = true,
+        allowRestaurantLookup: Bool = true
+    ) {
         retryRequest = .text(description)
         presentFoodLogLoading(.analyzingText)
         analysisTask?.cancel()
         analysisTask = Task {
             do {
+                if allowRestaurantLookup,
+                   let restaurantMatch = await RestaurantNutritionAnalysisService.match(description: description) {
+                    try Task.checkCancellation()
+                    if !restaurantMatch.clarificationPlan.isEmpty {
+                        let estimate = restaurantMatch.foodAnalysis
+                        currentEmoji = estimate?.emoji
+                        retryRequest = nil
+                        activeSheet = nil
+                        foodLogPhase = .result
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                            clarificationPrompt = SmartClarificationPrompt(
+                                originalText: description,
+                                restaurantMatch: restaurantMatch
+                            )
+                        }
+                        return
+                    }
+                    if let result = restaurantMatch.foodAnalysis {
+                        currentEmoji = result.emoji
+                        retryRequest = nil
+                        presentFoodResult(result)
+                        return
+                    }
+                }
                 let result = try await GeminiService.analyzeTextInput(description: description)
                 try Task.checkCancellation()
                 currentEmoji = result.emoji
@@ -2531,7 +2567,20 @@ private var dailyStepsTaskKey: String {
 private struct SmartClarificationPrompt: Identifiable {
     let id = UUID()
     let originalText: String
-    let estimate: GeminiService.FoodAnalysis
+    let estimate: GeminiService.FoodAnalysis?
+    let restaurantMatch: RestaurantMatch?
+
+    init(originalText: String, estimate: GeminiService.FoodAnalysis) {
+        self.originalText = originalText
+        self.estimate = estimate
+        restaurantMatch = nil
+    }
+
+    init(originalText: String, restaurantMatch: RestaurantMatch) {
+        self.originalText = originalText
+        estimate = restaurantMatch.foodAnalysis
+        self.restaurantMatch = restaurantMatch
+    }
 
     struct Group: Identifiable {
         let id: String
@@ -2541,6 +2590,16 @@ private struct SmartClarificationPrompt: Identifiable {
     }
 
     var groups: [Group] {
+        if let restaurantMatch {
+            return restaurantMatch.clarificationPlan.groups.map { group in
+                Group(
+                    id: group.id,
+                    title: group.title,
+                    options: group.choices.map(\.title),
+                    allowsMultiple: group.allowsMultiple
+                )
+            }
+        }
         let text = originalText.lowercased()
         if text.contains("egg") && text.contains("toast") {
             return [
@@ -2574,10 +2633,12 @@ private struct SmartClarificationView: View {
                 Text("We estimated")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(prompt.estimate.name)
+                Text(prompt.estimate?.name ?? prompt.restaurantMatch?.menuItem.name ?? prompt.originalText)
                     .font(.title3.bold())
-                Text("~\(prompt.estimate.calories) cals")
-                    .font(.headline)
+                if let calories = prompt.estimate?.calories {
+                    Text("~\(calories) cals")
+                        .font(.headline)
+                }
                 ForEach(prompt.groups) { group in
                     VStack(alignment: .leading, spacing: 8) {
                         Text(group.title).font(.headline)
