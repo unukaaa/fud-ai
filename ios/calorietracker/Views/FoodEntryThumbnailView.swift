@@ -52,9 +52,7 @@ struct FoodEntryThumbnailView: View {
                 return
             }
             guard let filename else { return }
-            let loaded = await Task.detached(priority: .utility) {
-                FoodImageStore.shared.loadThumbnail(filename: filename, maxPixelSize: maxPixelSize)
-            }.value
+            let loaded = FoodImageStore.shared.loadThumbnail(filename: filename, maxPixelSize: maxPixelSize)
             guard !Task.isCancelled else { return }
             image = loaded
         }
@@ -67,7 +65,7 @@ struct FoodEntryThumbnailView: View {
 
 enum FoodEntryPhotoLoader {
     static func viewerImages(for entry: FoodEntry) async -> [UIImage] {
-        await Task.detached(priority: .userInitiated) {
+        await MainActor.run {
             let fromFilenames = entry.allImageFilenames.compactMap { filename in
                 FoodImageStore.shared.loadForViewer(filename: filename)
             }
@@ -75,6 +73,6 @@ enum FoodEntryPhotoLoader {
                 return fromFilenames
             }
             return entry.allImageData.compactMap(UIImage.init(data:))
-        }.value
+        }
     }
 }

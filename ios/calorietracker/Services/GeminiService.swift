@@ -1303,7 +1303,7 @@ struct GeminiService {
 
     // MARK: - Network
 
-    static let defaultRetryDelaysNs: [UInt64] = [1_000_000_000, 2_000_000_000, 4_000_000_000]
+    nonisolated static let defaultRetryDelaysNs: [UInt64] = [1_000_000_000, 2_000_000_000, 4_000_000_000]
 
     static func makeRequest(
         url: URL,

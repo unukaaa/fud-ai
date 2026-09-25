@@ -101,10 +101,10 @@ final class WeeklyChallengeStore {
 
     init(
         defaults: UserDefaults = .standard,
-        api: WeeklyChallengeAPIClient = WeeklyChallengeAPIClient()
+        api: WeeklyChallengeAPIClient? = nil
     ) {
         self.defaults = defaults
-        self.api = api
+        self.api = api ?? WeeklyChallengeAPIClient()
         participantID = defaults.string(forKey: Self.participantIDKey)
         publicProfile = Self.decode(
             WeeklyChallengePublicProfile.self,

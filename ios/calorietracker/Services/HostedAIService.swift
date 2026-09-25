@@ -115,7 +115,7 @@ enum HostedAIService {
         }
 
         if let snapshot = HostedAIQuotaManager.snapshot(fromHeaders: http.allHeaderFields) {
-            await HostedAIQuotaManager.shared.apply(snapshot)
+            HostedAIQuotaManager.shared.apply(snapshot)
         }
 
         if (200...299).contains(http.statusCode) {
@@ -126,15 +126,15 @@ enum HostedAIService {
         let code = json["error"] as? String
         if let quotaJSON = json["quota"] as? [String: Any],
            let snapshot = HostedAIQuotaSnapshot(json: quotaJSON) {
-            await HostedAIQuotaManager.shared.apply(snapshot)
+            HostedAIQuotaManager.shared.apply(snapshot)
         }
 
         switch http.statusCode {
         case 401:
             throw HostedAIServiceError.unauthorized
         case 402:
-            let plan = await RevenueCatManager.shared.activePlan
-            let quota = await HostedAIQuotaManager.shared.snapshot(plan: plan)
+            let plan = RevenueCatManager.shared.activePlan
+            let quota = HostedAIQuotaManager.shared.snapshot(plan: plan)
             throw HostedAIQuotaError.quotaExceeded(remainingDaily: quota.dailyRemaining, creditBank: quota.creditBank)
         case 403 where code == "subscription_required":
             throw HostedAIQuotaError.noActiveSubscription

@@ -187,7 +187,7 @@ enum AustralianNutritionService {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func singularized(_ token: String) -> String {
+    nonisolated private static func singularized(_ token: String) -> String {
         if token == "jasmine" { return "white" }
         if token == "toast" { return "toasted" }
         if token.hasSuffix("ies"), token.count > 4 { return String(token.dropLast(3)) + "y" }

@@ -291,7 +291,7 @@ enum WeeklyChallengeProfileValidator {
         return tokens
     }
 
-    private static func isAllowedDisplayNameScalar(_ scalar: Unicode.Scalar) -> Bool {
+    nonisolated private static func isAllowedDisplayNameScalar(_ scalar: Unicode.Scalar) -> Bool {
         if isLetterOrNumber(scalar) { return true }
         switch scalar.properties.generalCategory {
         case .nonspacingMark, .spacingMark, .enclosingMark:
@@ -302,7 +302,7 @@ enum WeeklyChallengeProfileValidator {
         }
     }
 
-    private static func isLetterOrNumber(_ scalar: Unicode.Scalar) -> Bool {
+    nonisolated private static func isLetterOrNumber(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.properties.generalCategory {
         case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
              .modifierLetter, .otherLetter, .decimalNumber, .letterNumber,

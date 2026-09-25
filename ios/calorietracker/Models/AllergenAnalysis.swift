@@ -66,7 +66,7 @@ struct AllergenAnalysis: Equatable, Sendable {
         return AllergenAnalysis(assessment: .unableToAssess, matchedSensitivities: [], evidence: [])
     }
 
-    private static func normalize(_ value: String) -> String {
+    nonisolated private static func normalize(_ value: String) -> String {
         let folded = value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
         return folded
             .replacingOccurrences(of: "^[a-z]{2}:", with: "", options: .regularExpression)

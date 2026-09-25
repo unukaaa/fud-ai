@@ -146,7 +146,7 @@ final class HostedAIQuotaManager {
     }
 }
 
-struct HostedAIQuotaSnapshot: Equatable, Codable {
+nonisolated struct HostedAIQuotaSnapshot: Equatable, Codable {
     let plan: HostedPlan
     /// UTC day (`YYYY-MM-DD`) the daily counter applies to.
     let day: String
