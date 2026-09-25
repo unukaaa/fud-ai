@@ -1742,6 +1742,7 @@ private var dailyStepsTaskKey: String {
                             carbs: result.carbs,
                             fat: result.fat,
                             ingredients: result.ingredients,
+                            resolvedComponents: result.resolvedComponents,
                             progressiveMeal: result.progressiveMeal,
                             productMetadata: result.productMetadata,
                             nutritionSource: result.nutritionSource,

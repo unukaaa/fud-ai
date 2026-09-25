@@ -87,6 +87,10 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
 
     func match(_ query: RestaurantFoodQuery) async -> RestaurantMatch? {
         let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
+        let clarificationText = query.rawText
+            .components(separatedBy: "Clarification:")
+            .dropFirst()
+            .joined(separator: " ")
         let restaurant = query.restaurantID.flatMap { id in
             store.dataset.restaurants.first { $0.id == id }
         } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
@@ -100,7 +104,8 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         if restaurant.id == "kfc_au", normalized.contains("zinger box") {
             item = restaurantItems.first { $0.id == "kfc-au-zinger-box-regular" }
         } else {
-            item = matcher.item(in: query.rawText, items: restaurantItems)
+            item = (!clarificationText.isEmpty ? matcher.item(in: clarificationText, items: restaurantItems) : nil)
+                ?? matcher.item(in: query.rawText, items: restaurantItems)
         }
         guard let item else { return nil }
 
@@ -155,6 +160,11 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             plan = RestaurantClarificationPlan(groups: [])
         }
 
+        let resolvedComponents = resolvedComponentSelections(
+            in: query.rawText,
+            groups: item.mealConfigurations.first?.clarificationGroups ?? []
+        )
+
         return RestaurantMatch(
             restaurant: restaurant,
             menuItem: item,
@@ -162,9 +172,37 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             selectedVariant: selectedVariant,
             matchedModifiers: modifiers,
             additionalComponents: additionalComponents,
+            resolvedComponents: resolvedComponents,
             clarificationPlan: plan,
             assumptions: []
         )
+    }
+
+    private func resolvedComponentSelections(
+        in text: String,
+        groups: [RestaurantClarificationGroup]
+    ) -> [RestaurantResolvedComponent] {
+        let answerSegments = text
+            .components(separatedBy: "Clarification:")
+            .dropFirst()
+            .joined(separator: " ")
+            .split(separator: ";")
+            .map(String.init)
+
+        return groups.compactMap { group in
+            guard let segment = answerSegments.first(where: {
+                RestaurantQueryNormalizer.normalize($0).hasPrefix(RestaurantQueryNormalizer.normalize(group.title))
+            }),
+            let choice = group.choices.first(where: {
+                RestaurantQueryNormalizer.normalize(segment).contains(RestaurantQueryNormalizer.normalize($0.title))
+            }) else { return nil }
+            return RestaurantResolvedComponent(
+                groupID: group.id,
+                name: choice.title,
+                quantity: RestaurantQueryNormalizer.quantity(in: choice.title) ?? 1,
+                sourceItemID: choice.value == "best_estimate" ? nil : choice.value
+            )
+        }
     }
 }
 
@@ -175,12 +213,13 @@ enum RestaurantNutritionAnalysisService {
 
     static func match(description: String, store: RestaurantDatasetStore?) async -> RestaurantMatch? {
         guard let store else { return nil }
+        let parentDescription = description.components(separatedBy: "Clarification:").first ?? description
         let provider = LocalRestaurantNutritionProvider(store: store)
         return await provider.match(RestaurantFoodQuery(
             rawText: description,
             restaurantID: nil,
             itemTerms: [],
-            quantity: RestaurantQueryNormalizer.quantity(in: description),
+            quantity: RestaurantQueryNormalizer.quantity(in: parentDescription),
             modifierTerms: []
         ))
     }
@@ -217,6 +256,7 @@ extension RestaurantMatch {
             selectedServingUnit: menuItem.servingUnit,
             selectedServingQuantity: Double(quantity),
             servingSizeIsKnown: hasKnownServingWeight,
+            resolvedComponents: resolvedComponents,
             nutritionSource: "Verified restaurant nutrition",
             nutritionSourceDetail: provenance.map { source in
                 [restaurant.name, source.datasetVersion].compactMap { $0 }.joined(separator: " · ")

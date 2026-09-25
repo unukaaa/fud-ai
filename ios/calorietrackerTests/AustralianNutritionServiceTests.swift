@@ -38,6 +38,19 @@ struct AustralianNutritionServiceTests {
         #expect(result.protein == 1.7)
     }
 
+    @Test func partialIngredientMatchUsesMixedConfidence() {
+        var analysis = food(name: "Chicken with mystery sauce", grams: 220, calories: 400)
+        analysis.ingredients = [
+            MealIngredient(name: "Grilled chicken breast", grams: 200, calories: 330, protein: 60, carbs: 0, fat: 8),
+            MealIngredient(name: "Mystery sauce", grams: 20, calories: 70, protein: 0, carbs: 5, fat: 5)
+        ]
+        let result = AustralianNutritionService.applyingBestAustralianMatch(to: analysis)
+
+        #expect(result.nutritionSource == "AUSNUT Australia")
+        #expect(result.nutritionSourceDetail == "1 of 2 ingredients matched to AUSNUT 2023")
+        #expect(result.nutritionConfidence == "Medium")
+    }
+
     @Test func barcodeDataIsNeverOverridden() {
         var analysis = food(name: "Grilled chicken breast", grams: 200, calories: 999)
         analysis.productMetadata = FoodProductMetadata(

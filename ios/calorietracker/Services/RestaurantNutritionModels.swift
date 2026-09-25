@@ -178,6 +178,15 @@ struct RestaurantMatchedComponent: Equatable, Sendable {
     var nutrition: NutritionFacts? { menuItem.nutrition?.scaled(by: Double(quantity)) }
 }
 
+struct RestaurantResolvedComponent: Equatable, Sendable, Identifiable {
+    let groupID: String
+    let name: String
+    let quantity: Int
+    let sourceItemID: String?
+
+    var id: String { groupID }
+}
+
 struct RestaurantMatch: Equatable, Sendable {
     let restaurant: Restaurant
     let menuItem: RestaurantMenuItem
@@ -185,6 +194,7 @@ struct RestaurantMatch: Equatable, Sendable {
     let selectedVariant: RestaurantMenuItemVariant?
     let matchedModifiers: [RestaurantModifier]
     let additionalComponents: [RestaurantMatchedComponent]
+    var resolvedComponents: [RestaurantResolvedComponent] = []
     let clarificationPlan: RestaurantClarificationPlan
     let assumptions: [NutritionAssumption]
 

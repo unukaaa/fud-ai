@@ -23,6 +23,7 @@ struct FoodResultView: View {
     let nutritionSource: String
     let nutritionSourceDetail: String?
     let nutritionConfidence: String
+    let resolvedComponents: [RestaurantResolvedComponent]
     let proteinIsKnown: Bool
     let carbsAreKnown: Bool
     let fatIsKnown: Bool
@@ -138,13 +139,15 @@ struct FoodResultView: View {
             }
             return "⚠️ Partially verified" + restaurantSuffix
         }
-        if nutritionSource == "AUSNUT Australia" { return "✓ AUSNUT" }
+        if nutritionSource == "AUSNUT Australia" {
+            return nutritionConfidence == "High" ? "✓ AUSNUT" : "⚠️ Partially AUSNUT"
+        }
         if nutritionConfidence == "Low" { return "✨ AI estimate" }
         return "⚠️ Check estimate"
     }
 
     private var isFullyVerifiedSource: Bool {
-        nutritionSource == "AUSNUT Australia"
+        (nutritionSource == "AUSNUT Australia" && nutritionConfidence == "High")
             || (nutritionSource == "Verified restaurant nutrition"
                 && nutritionConfidence == "High"
                 && proteinIsKnown
@@ -162,6 +165,7 @@ struct FoodResultView: View {
         carbs: Double,
         fat: Double,
         ingredients: [MealIngredient] = [],
+        resolvedComponents: [RestaurantResolvedComponent] = [],
         progressiveMeal: Bool = false,
         productMetadata: FoodProductMetadata? = nil,
         nutritionSource: String = "AI estimate",
@@ -239,6 +243,7 @@ struct FoodResultView: View {
         self.emoji = emoji
         self.source = source
         self.progressiveMeal = progressiveMeal
+        self.resolvedComponents = resolvedComponents
         self.productMetadata = productMetadata
         self.nutritionSource = nutritionSource
         self.nutritionSourceDetail = nutritionSourceDetail

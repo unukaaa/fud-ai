@@ -44,6 +44,7 @@ struct GeminiService {
         var requiresServingUnitFallback = false
         var progressiveMeal = false
         var ingredients: [MealIngredient] = []
+        var resolvedComponents: [RestaurantResolvedComponent] = []
         var productMetadata: FoodProductMetadata? = nil
         var nutritionSource = "AI estimate"
         var nutritionSourceDetail: String? = nil

@@ -164,6 +164,30 @@ struct RestaurantNutritionProviderTests {
         #expect(result?.foodAnalysis?.nutritionSource == "Verified restaurant nutrition")
     }
 
+    @Test func clarificationMealSelectionOverridesOriginalBurgerAlias() async {
+        let result = await RestaurantNutritionAnalysisService.match(
+            description: "KFC Zinger Burger\nClarification: Order: Zinger Meal"
+        )
+        #expect(result?.menuItem.id == "kfc-au-zinger-meal-regular")
+        #expect(result?.quantity == 1)
+        #expect(result?.foodAnalysis?.calories == 732)
+    }
+
+    @Test func boxComponentQuantityDoesNotMultiplyParentMeal() async {
+        let text = "KFC Zinger Box\nClarification: Chicken: 3 Wicked Wings; First side: Regular Chips; Second side: Regular Potato & Gravy; Drink: Regular Pepsi Max"
+        let result = await RestaurantNutritionAnalysisService.match(description: text)
+        let analysis = result?.foodAnalysis
+
+        #expect(result?.menuItem.id == "kfc-au-zinger-box-regular")
+        #expect(result?.quantity == 1)
+        #expect(result?.resolvedComponents.first(where: { $0.groupID == "chicken" })?.quantity == 3)
+        #expect(result?.resolvedComponents.first(where: { $0.groupID == "chicken" })?.name == "3 Wicked Wings")
+        #expect(result?.nutrition?.kilojoules == 4289)
+        #expect(analysis?.calories == 1026)
+        #expect(analysis?.selectedServingQuantity == 1)
+        #expect(analysis?.resolvedComponents.count == 4)
+    }
+
     @Test func burgerOnlyClarificationDoesNotRepeat() async {
         let result = await provider.match(RestaurantFoodQuery(rawText: "KFC Zinger Clarification: Order: Zinger Burger only", restaurantID: nil, itemTerms: [], quantity: nil, modifierTerms: []))
         #expect(result?.menuItem.id == "kfc-au-zinger-burger")
