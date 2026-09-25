@@ -58,14 +58,18 @@ struct RestaurantAliasMatcher: Sendable {
         let explicitlyRequestsMeal = normalized.contains(" meal") || normalized.hasSuffix("meal") || normalized.contains(" combo") || normalized.hasSuffix("combo")
         return items
             .compactMap { item -> (RestaurantMenuItem, Int)? in
-                let bestAliasLength = (item.aliases + [item.name])
+                let bestAliasScore = (item.aliases + [item.name])
                     .map(RestaurantQueryNormalizer.normalize)
-                    .filter { normalized.contains($0) }
-                    .map(\.count)
+                    .compactMap { alias -> Int? in
+                        guard let range = normalized.range(of: alias) else { return nil }
+                        let position = normalized.distance(from: normalized.startIndex, to: range.lowerBound)
+                        let endsPrimaryPhrase = range.upperBound == normalized.endIndex ? 1_000 : 0
+                        return max(0, 10_000 - (position * 100)) + endsPrimaryPhrase + alias.count
+                    }
                     .max()
-                return bestAliasLength.map { length in
-                    let mealPriority = explicitlyRequestsMeal && item.category == "meal" ? 10_000 : 0
-                    return (item, length + mealPriority)
+                return bestAliasScore.map { score in
+                    let mealPriority = explicitlyRequestsMeal && item.category == "meal" ? 100_000 : 0
+                    return (item, score + mealPriority)
                 }
             }
             .max { $0.1 < $1.1 }?.0
@@ -100,10 +104,12 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
 
     func match(_ query: RestaurantFoodQuery) async -> RestaurantMatch? {
         let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
-        let clarificationText = query.rawText
-            .components(separatedBy: "Clarification:")
-            .dropFirst()
-            .joined(separator: " ")
+        let parentText = query.rawText.components(separatedBy: "Clarification:").first ?? query.rawText
+        let normalizedParent = RestaurantQueryNormalizer.normalize(parentText)
+        let primaryClause = normalizedParent
+            .components(separatedBy: " with ").first?
+            .components(separatedBy: " and ").first
+            ?? parentText
         let restaurant = query.restaurantID.flatMap { id in
             store.dataset.restaurants.first { $0.id == id }
         } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
@@ -113,14 +119,14 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let restaurantItems = store.dataset.menuItems.filter { item in
             item.provenance?.restaurantID == nil || item.provenance?.restaurantID == restaurant.id
         }
-        let item: RestaurantMenuItem?
-        if restaurant.id == "kfc_au", normalized.contains("zinger box") {
-            item = restaurantItems.first { $0.id == "kfc-au-zinger-box-regular" }
-        } else {
-            item = (!clarificationText.isEmpty ? matcher.item(in: clarificationText, items: restaurantItems) : nil)
-                ?? matcher.item(in: query.rawText, items: restaurantItems)
-        }
-        guard let item else { return nil }
+        guard let initiallyMatchedItem = matcher.item(in: primaryClause, items: restaurantItems) else { return nil }
+        let initialGroups = initiallyMatchedItem.mealConfigurations.first?.clarificationGroups ?? []
+        let initialSelections = resolvedComponentSelections(in: query.rawText, groups: initialGroups)
+        let selectedItemID = initialSelections
+            .first { selection in initialGroups.first(where: { $0.id == selection.groupID })?.reason == .mealCompleteness }?
+            .sourceItemID
+        let item = selectedItemID.flatMap { targetID in restaurantItems.first { $0.id == targetID } }
+            ?? initiallyMatchedItem
 
         let selectedVariant = item.variants.first { variant in
             (variant.aliases + [variant.name]).map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
@@ -143,37 +149,24 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             }
         }
 
-        let additionalComponents: [RestaurantMatchedComponent]
-        if item.id == "kfc-au-zinger-burger",
-           let wings = store.dataset.menuItems.first(where: { $0.id == "kfc-au-wicked-wing" }),
-           RestaurantQueryNormalizer.normalize(query.rawText).contains("wicked wing") {
-            additionalComponents = [RestaurantMatchedComponent(menuItem: wings, quantity: max(RestaurantQueryNormalizer.quantity(in: query.rawText) ?? 1, 1))]
-        } else {
-            additionalComponents = []
-        }
+        let additionalComponents = explicitAdditionalComponents(
+            in: parentText,
+            primaryItem: item,
+            candidates: restaurantItems
+        )
+        let quantityBelongsToAdditionalComponent = additionalComponents.contains { $0.quantity == query.quantity }
+        let effectiveParentQuantity = quantityBelongsToAdditionalComponent ? 1 : parentQuantity
+
+        let itemGroups = item.mealConfigurations.first?.clarificationGroups ?? []
+        let clarifiedComponents = resolvedComponentSelections(in: query.rawText, groups: itemGroups)
+        let resolvedGroupIDs = answeredGroupIDs(in: query.rawText, groups: itemGroups)
+        let unresolvedGroups = normalized.contains("best estimate")
+            ? []
+            : itemGroups.filter { !resolvedGroupIDs.contains($0.id) }
 
         let plan: RestaurantClarificationPlan
-        if item.id == "kfc-au-zinger-burger",
-           !normalized.contains("meal"),
-           !normalized.contains("box"),
-           !normalized.contains("burger only"),
-           !normalized.contains("standalone"),
-           !normalized.contains("best estimate"),
-           additionalComponents.isEmpty {
-            plan = RestaurantClarificationPlan(groups: item.mealConfigurations.first?.clarificationGroups ?? [])
-        } else if item.id == "kfc-au-zinger-box-regular" {
-            let groups = item.mealConfigurations.first?.clarificationGroups ?? []
-            let resolvedGroups = groups.filter { group in
-                if normalized.contains("best estimate") { return false }
-                switch group.id {
-                case "chicken": return !normalized.contains("wicked") && !normalized.contains("recipe") && !normalized.contains("fillet") && !normalized.contains("tender")
-                case "first-side": return !normalized.contains("first side")
-                case "second-side": return !normalized.contains("second side")
-                case "drink": return !normalized.contains("pepsi") && !normalized.contains("7up") && !normalized.contains("mountain dew") && !normalized.contains("solo") && !normalized.contains("sunkist") && !normalized.contains("water") && !normalized.contains("juice")
-                default: return true
-                }
-            }
-            plan = RestaurantClarificationPlan(groups: resolvedGroups)
+        if !unresolvedGroups.isEmpty && additionalComponents.isEmpty {
+            plan = RestaurantClarificationPlan(groups: unresolvedGroups)
         } else if !item.variants.isEmpty && selectedVariant == nil {
             let choices = item.variants.map { RestaurantClarificationChoice(id: $0.id, title: $0.name, value: $0.id) } + [RestaurantClarificationChoice(id: "best_estimate", title: "Use best estimate", value: "best_estimate")]
             let quantityVariants = item.variants.allSatisfy { $0.servingQuantity != nil && $0.servingUnit != nil }
@@ -189,10 +182,6 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             plan = RestaurantClarificationPlan(groups: [])
         }
 
-        let clarifiedComponents = resolvedComponentSelections(
-            in: query.rawText,
-            groups: item.mealConfigurations.first?.clarificationGroups ?? []
-        )
         let variantComponents = (selectedVariant?.componentIDs ?? []).compactMap { componentID in
             if let component = store.dataset.menuItems.first(where: { $0.id == componentID }) {
                 return RestaurantResolvedComponent(groupID: componentID, name: component.name, quantity: 1, sourceItemID: componentID)
@@ -208,7 +197,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         return RestaurantMatch(
             restaurant: restaurant,
             menuItem: item,
-            quantity: parentQuantity,
+            quantity: effectiveParentQuantity,
             selectedVariant: selectedVariant,
             matchedModifiers: modifiers,
             additionalComponents: additionalComponents,
@@ -229,7 +218,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             .split(separator: ";")
             .map(String.init)
 
-        return groups.compactMap { group in
+        let explicitlyLabelled = groups.compactMap { group -> RestaurantResolvedComponent? in
             guard let segment = answerSegments.first(where: {
                 RestaurantQueryNormalizer.normalize($0).hasPrefix(RestaurantQueryNormalizer.normalize(group.title))
             }),
@@ -242,6 +231,105 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
                 quantity: RestaurantQueryNormalizer.quantity(in: choice.title) ?? 1,
                 sourceItemID: choice.value == "best_estimate" ? nil : choice.value
             )
+        }
+        let labelledGroupIDs = Set(explicitlyLabelled.map(\.groupID))
+        let normalizedText = RestaurantQueryNormalizer.normalize(text)
+        let unlabelledCandidates = groups.compactMap { group -> (RestaurantClarificationGroup, RestaurantClarificationChoice)? in
+            guard !labelledGroupIDs.contains(group.id),
+                  let choice = group.choices.first(where: { choice in
+                      let terms = group.reason == .mealCompleteness
+                          ? [RestaurantQueryNormalizer.normalize(choice.title)]
+                          : choiceTerms(for: choice)
+                      return choice.value != "best_estimate" && terms.contains { term in
+                          normalizedText.contains(term)
+                      }
+                  })
+            else { return nil }
+            return (group, choice)
+        }
+        let unlabelled = unlabelledCandidates.compactMap { group, choice -> RestaurantResolvedComponent? in
+            guard unlabelledCandidates.filter({ $0.1.value == choice.value }).count == 1 else { return nil }
+            return RestaurantResolvedComponent(
+                groupID: group.id,
+                name: choice.title,
+                quantity: RestaurantQueryNormalizer.quantity(in: choice.title) ?? 1,
+                sourceItemID: choice.value
+            )
+        }
+        return explicitlyLabelled + unlabelled
+    }
+
+    private func choiceTerms(for choice: RestaurantClarificationChoice) -> [String] {
+        var terms = [choice.title]
+        if let item = store.dataset.menuItems.first(where: { $0.id == choice.value }) {
+            terms.append(contentsOf: item.aliases)
+            terms.append(item.name)
+        }
+        let normalizedTerms = terms.map(RestaurantQueryNormalizer.normalize)
+        return normalizedTerms + normalizedTerms.compactMap { term in
+            term.hasPrefix("regular ") ? String(term.dropFirst("regular ".count)) : nil
+        }
+    }
+
+    private func answeredGroupIDs(
+        in text: String,
+        groups: [RestaurantClarificationGroup]
+    ) -> Set<String> {
+        let answerSegments = text
+            .components(separatedBy: "Clarification:")
+            .dropFirst()
+            .joined(separator: " ")
+            .split(separator: ";")
+            .map { RestaurantQueryNormalizer.normalize(String($0)) }
+        var answered = Set(groups.compactMap { group in
+            answerSegments.contains { $0.hasPrefix(RestaurantQueryNormalizer.normalize(group.title)) }
+                ? group.id
+                : nil
+        })
+
+        let normalizedText = RestaurantQueryNormalizer.normalize(text)
+        let textTokens = Set(normalizedText.split(separator: " ").map(String.init))
+        let candidates = groups.flatMap { group in
+            group.choices.compactMap { choice -> (String, String)? in
+                let terms = group.reason == .mealCompleteness
+                    ? [RestaurantQueryNormalizer.normalize(choice.title)]
+                    : choiceTerms(for: choice)
+                let matchesTerm = terms.contains { term in
+                    let tokens = term.split(separator: " ").map(String.init).filter { $0 != "regular" }
+                    return normalizedText.contains(term) || (!tokens.isEmpty && tokens.allSatisfy(textTokens.contains))
+                }
+                guard choice.value != "best_estimate",
+                      matchesTerm
+                else { return nil }
+                return (group.id, choice.value)
+            }
+        }
+        for candidate in candidates where candidates.filter({ $0.1 == candidate.1 }).count == 1 {
+            answered.insert(candidate.0)
+        }
+        return answered
+    }
+
+    private func explicitAdditionalComponents(
+        in text: String,
+        primaryItem: RestaurantMenuItem,
+        candidates: [RestaurantMenuItem]
+    ) -> [RestaurantMatchedComponent] {
+        let normalized = RestaurantQueryNormalizer.normalize(text)
+        guard primaryItem.category != "meal",
+              normalized.contains(" and ") || normalized.contains(" with ")
+        else { return [] }
+
+        return candidates.compactMap { candidate in
+            guard candidate.id != primaryItem.id,
+                  let alias = (candidate.aliases + [candidate.name])
+                    .map(RestaurantQueryNormalizer.normalize)
+                    .filter({ normalized.contains($0) })
+                    .max(by: { $0.count < $1.count })
+            else { return nil }
+            let prefix = normalized.components(separatedBy: alias).first ?? ""
+            let quantity = prefix.split(separator: " ").last.flatMap { Int($0) } ?? 1
+            return RestaurantMatchedComponent(menuItem: candidate, quantity: max(quantity, 1))
         }
     }
 }
