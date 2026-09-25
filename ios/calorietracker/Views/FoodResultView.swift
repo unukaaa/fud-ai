@@ -77,7 +77,7 @@ struct FoodResultView: View {
     let profile: UserProfile
     let entriesForDate: (Date) -> [FoodEntry]
     let weightMetric: Bool
-    var onLog: (FoodEntry) -> Void
+    var onLog: (FoodEntry) -> Bool
     @Environment(\.dismiss) private var dismiss
 
     // Scaling factor based on user-adjusted serving size
@@ -172,7 +172,7 @@ struct FoodResultView: View {
         profile: UserProfile,
         entriesForDate: @escaping (Date) -> [FoodEntry],
         weightMetric: Bool,
-        onLog: @escaping (FoodEntry) -> Void
+        onLog: @escaping (FoodEntry) -> Bool
     ) {
         let normalizedServingUnitOptions = servingSizeIsKnown
             ? ServingUnitOption.normalizedOptions(servingUnitOptions, totalGrams: servingSizeGrams)
@@ -462,9 +462,9 @@ struct FoodResultView: View {
                                 Text(name)
                                     .font(.system(.title2, design: .rounded, weight: .bold))
                                 Spacer()
-                                Text(nutritionConfidence == "Low" ? "⚠ Check estimate" : "✨ AI estimate")
+                                Text("✨ AI estimate")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(nutritionConfidence == "Low" ? .orange : .secondary)
+                                    .foregroundStyle(.secondary)
                             }
                             HStack(spacing: 8) {
                                 reviewSummaryValue("Calories", "\(scaledCalories) cals", .primary)
@@ -492,9 +492,6 @@ struct FoodResultView: View {
                             Text(nutritionSource)
                                 .font(.system(.body, design: .rounded, weight: .semibold))
                             Spacer()
-                            Text(nutritionConfidence)
-                                .font(.system(.caption, design: .rounded, weight: .semibold))
-                                .foregroundStyle(nutritionConfidence == "High" ? Color.green : .orange)
                         }
                         if let nutritionSourceDetail, !nutritionSourceDetail.isEmpty {
                             Text(nutritionSourceDetail)
@@ -757,11 +754,20 @@ struct FoodResultView: View {
                     .padding(.vertical, 8)
                     .background(.ultraThinMaterial)
                 }
-                .alert("Meal added!", isPresented: $showSuccess) {
-                    Button("View today") { dismiss() }
-                    Button("Add another meal", role: .cancel) { dismiss() }
-                } message: {
-                    Text("\(name)\n\(scaledCalories) cals · \(MacroValueFormatter.withUnit(scaledProtein)) protein")
+                .overlay {
+                    if showSuccess {
+                        VStack(spacing: 5) {
+                            Text("✓ Meal added")
+                                .font(.headline.weight(.semibold))
+                            Text("\(scaledCalories) cals · \(MacroValueFormatter.withUnit(scaledProtein)) protein")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(radius: 12, y: 4)
+                    }
                 }
             }
         }
@@ -778,8 +784,11 @@ struct FoodResultView: View {
     private func logFood() {
         guard submissionGate.begin() else { return }
         let entry = makeFoodEntry(includeImage: true)
-        onLog(entry)
+        guard onLog(entry) else { return }
         showSuccess = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            dismiss()
+        }
     }
 
     private func applySuggestedPortion(_ fraction: Double) {

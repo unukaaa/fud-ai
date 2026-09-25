@@ -1781,7 +1781,9 @@ private var dailyStepsTaskKey: String {
                             entriesForDate: { foodStore.entries(for: $0) },
                             weightMetric: weightUnitRaw == "kg",
                             onLog: { entry in
-                                if !foodStore.addEntry(entry) { showFoodLoggingBlocked = true }
+                                let saved = foodStore.addEntry(entry)
+                                if !saved { showFoodLoggingBlocked = true }
+                                return saved
                             }
                         )
                     }
@@ -2531,26 +2533,31 @@ private struct SmartClarificationPrompt: Identifiable {
     let originalText: String
     let estimate: GeminiService.FoodAnalysis
 
-    var question: String {
-        let text = originalText.lowercased()
-        if text.contains("egg") && text.contains("toast") { return "Quick check — what best matches the toast?" }
-        if text.contains("curry") { return "Which version is closest?" }
-        if text.contains("burger") { return "Which type is closest?" }
-        return "Quick check — which option is closest?"
+    struct Group: Identifiable {
+        let id: String
+        let title: String
+        let options: [String]
+        let allowsMultiple: Bool
     }
 
-    var options: [String] {
+    var groups: [Group] {
         let text = originalText.lowercased()
         if text.contains("egg") && text.contains("toast") {
-            return ["2 eggs + 2 slices of toast", "2 eggs + 1 slice of toast", "Eggs cooked with butter/oil"]
+            return [
+                Group(id: "toast", title: "Toast quantity", options: ["1 slice", "2 slices", "3 slices", "Not sure"], allowsMultiple: false),
+                Group(id: "cooking", title: "How were the eggs cooked?", options: ["No added fat", "Butter", "Oil", "Not sure"], allowsMultiple: false)
+            ]
         }
         if text.contains("curry") {
-            return ["Curry with rice", "Curry only", "Creamy/coconut curry"]
+            return [
+                Group(id: "side", title: "Side", options: ["No rice", "Rice", "Not sure"], allowsMultiple: false),
+                Group(id: "style", title: "Style", options: ["Regular / spiced", "Creamy", "Coconut", "Not sure"], allowsMultiple: false)
+            ]
         }
-        if text.contains("burger") {
-            return ["Cheeseburger", "Double cheeseburger", "Chicken burger"]
+        if text.trimmingCharacters(in: .whitespacesAndNewlines) == "burger" {
+            return [Group(id: "type", title: "Burger type", options: ["Cheeseburger", "Double cheeseburger", "Chicken burger", "Use best estimate"], allowsMultiple: false)]
         }
-        return ["Small portion", "Regular portion", "Large portion"]
+        return [Group(id: "portion", title: "Portion", options: ["Small portion", "Regular portion", "Large portion", "Not sure"], allowsMultiple: false)]
     }
 }
 
@@ -2558,6 +2565,7 @@ private struct SmartClarificationView: View {
     let prompt: SmartClarificationPrompt
     let onSkip: () -> Void
     let onResolve: (String) -> Void
+    @State private var selections: [String: String] = [:]
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -2570,14 +2578,32 @@ private struct SmartClarificationView: View {
                     .font(.title3.bold())
                 Text("~\(prompt.estimate.calories) cals")
                     .font(.headline)
-                Text(prompt.question)
-                    .font(.headline)
-                    .padding(.top, 8)
-                ForEach(prompt.options, id: \.self) { option in
-                    Button(option) { onResolve(option) }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(prompt.groups) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.title).font(.headline)
+                        ForEach(group.options, id: \.self) { option in
+                            Button {
+                                selections[group.id] = option
+                            } label: {
+                                HStack {
+                                    Text(option)
+                                    Spacer()
+                                    Image(systemName: selections[group.id] == option ? "checkmark.circle.fill" : "circle")
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(selections[group.id] == option ? AppColors.calorie : .secondary)
+                        }
+                    }
                 }
+                Button("Continue") {
+                    let answers = prompt.groups.compactMap { group in
+                        selections[group.id].map { "\(group.title): \($0)" }
+                    }
+                    onResolve(answers.isEmpty ? "Use best estimate" : answers.joined(separator: "; "))
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selections.isEmpty)
                 Button("Use best estimate") {
                     onSkip()
                 }
