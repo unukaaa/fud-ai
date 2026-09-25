@@ -82,6 +82,11 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         }
         guard let item = matcher.item(in: query.rawText, items: restaurantItems) else { return nil }
 
+        let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
+        let selectedVariant = item.variants.first { variant in
+            variant.aliases.map(RestaurantQueryNormalizer.normalize).contains { normalized.contains($0) }
+        }
+
         let modifiers = item.modifiers.filter { modifier in
             query.modifierTerms.contains { term in
                 modifier.aliases.contains { alias in
@@ -100,7 +105,6 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         }
 
         let plan: RestaurantClarificationPlan
-        let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
         if item.id == "kfc-au-zinger-burger",
            !normalized.contains("meal"),
            !normalized.contains("box"),
@@ -116,6 +120,9 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
                 }
             }
             plan = RestaurantClarificationPlan(groups: resolvedGroups)
+        } else if !item.variants.isEmpty && selectedVariant == nil {
+            let choices = item.variants.map { RestaurantClarificationChoice(id: $0.id, title: $0.name, value: $0.id) } + [RestaurantClarificationChoice(id: "best_estimate", title: "Use best estimate", value: "best_estimate")]
+            plan = RestaurantClarificationPlan(groups: [RestaurantClarificationGroup(id: "size", reason: .size, title: "Size", choices: choices, allowsMultiple: false, optional: false)])
         } else {
             plan = RestaurantClarificationPlan(groups: [])
         }
@@ -124,6 +131,7 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             restaurant: restaurant,
             menuItem: item,
             quantity: max(query.quantity ?? 1, 1),
+            selectedVariant: selectedVariant,
             matchedModifiers: modifiers,
             additionalComponents: additionalComponents,
             clarificationPlan: plan,

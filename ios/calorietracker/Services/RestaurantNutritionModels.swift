@@ -182,13 +182,14 @@ struct RestaurantMatch: Equatable, Sendable {
     let restaurant: Restaurant
     let menuItem: RestaurantMenuItem
     let quantity: Int
+    let selectedVariant: RestaurantMenuItemVariant?
     let matchedModifiers: [RestaurantModifier]
     let additionalComponents: [RestaurantMatchedComponent]
     let clarificationPlan: RestaurantClarificationPlan
     let assumptions: [NutritionAssumption]
 
     var nutrition: NutritionFacts? {
-        var values = [menuItem.nutrition?.scaled(by: Double(quantity))].compactMap { $0 }
+        var values = [selectedVariant?.nutrition ?? menuItem.nutrition].compactMap { $0 }.map { $0.scaled(by: Double(quantity)) }
         values.append(contentsOf: additionalComponents.compactMap(\.nutrition))
         values.append(contentsOf: matchedModifiers.compactMap { $0.nutritionDelta })
         return NutritionFacts.adding(values)
