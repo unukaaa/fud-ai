@@ -379,11 +379,21 @@ enum RestaurantNutritionAnalysisService {
 
     static func match(description: String, store: RestaurantDatasetStore?) async -> RestaurantMatch? {
         guard let store else { return nil }
-        let parentDescription = description.components(separatedBy: "Clarification:").first ?? description
+        let descriptionParts = description.components(separatedBy: "Clarification:")
+        let parentText = descriptionParts.first ?? description
+        let intent = FoodQueryInterpreter.interpret(parentText, store: store)
+        // A mixed query spanning different restaurant datasets must stay intact
+        // for the general analyser instead of silently dropping later foods.
+        let itemRestaurantIDs = Set(intent.items.compactMap(\.restaurantID))
+        guard itemRestaurantIDs.count <= 1 else { return nil }
+        let resolverDescription = descriptionParts.count > 1
+            ? intent.interpretedText + "\nClarification:" + descriptionParts.dropFirst().joined(separator: "Clarification:")
+            : intent.interpretedText
+        let parentDescription = resolverDescription.components(separatedBy: "Clarification:").first ?? resolverDescription
         let provider = LocalRestaurantNutritionProvider(store: store)
         return await provider.match(RestaurantFoodQuery(
-            rawText: description,
-            restaurantID: nil,
+            rawText: resolverDescription,
+            restaurantID: intent.restaurantID,
             itemTerms: [],
             quantity: RestaurantQueryNormalizer.quantity(in: parentDescription),
             modifierTerms: []

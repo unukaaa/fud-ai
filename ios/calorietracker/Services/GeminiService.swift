@@ -322,8 +322,12 @@ struct GeminiService {
     }
 
     static func analyzeTextInput(description: String, skipHostedMetering: Bool = false) async throws -> FoodAnalysis {
+        let intent = FoodQueryInterpreter.interpret(description)
+        let interpretedDescription = intent.interpretedText
         let prompt = """
-        Estimate the nutritional content for: \(description)
+        Original user wording: \(description)
+        Interpreted food query: \(interpretedDescription)
+        Estimate the nutritional content for the interpreted food query. Preserve all listed foods and their relationships.
         Parse any quantities, brands, and multiple items from the text. If a brand is mentioned, use that brand's known nutritional data. If multiple items are described, sum up the total nutrition.
         Respond ONLY with JSON:
         \(Self.foodAnalysisJSONShape)
@@ -334,9 +338,10 @@ struct GeminiService {
         Include a single food emoji that best represents the food. Use null for any nutrient you cannot estimate.
         """
         return try await runWithHostedQuota(.textFood, skip: skipHostedMetering) {
-            let analysis = try await callTextFoodAnalysis(prompt: prompt, description: description)
-            let result = await addingFallbackServingUnits(to: analysis, image: nil, description: description)
-            return AustralianNutritionService.applyingBestAustralianMatch(to: result)
+            let analysis = try await callTextFoodAnalysis(prompt: prompt, description: interpretedDescription)
+            let result = await addingFallbackServingUnits(to: analysis, image: nil, description: interpretedDescription)
+            let australian = AustralianNutritionService.applyingBestAustralianMatch(to: result)
+            return FoodQueryInterpreter.applyingPlausibilityGuard(to: australian, intent: intent)
         }
     }
 
