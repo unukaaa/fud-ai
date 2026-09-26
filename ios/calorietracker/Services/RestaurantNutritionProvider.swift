@@ -386,11 +386,24 @@ enum RestaurantNutritionAnalysisService {
         // for the general analyser instead of silently dropping later foods.
         let itemRestaurantIDs = Set(intent.items.compactMap(\.restaurantID))
         guard itemRestaurantIDs.count <= 1 else { return nil }
+        // A deterministic restaurant result must not silently discard food-like
+        // residual text that the interpreter could not account for.
+        guard !intent.unresolvedTerms.contains(where: FoodQueryInterpreter.isClearlyUnmatchedFood) else { return nil }
+        let provider = LocalRestaurantNutritionProvider(store: store)
+        let originalParent = description.components(separatedBy: "Clarification:").first ?? description
+        if let direct = await provider.match(RestaurantFoodQuery(
+            rawText: description,
+            restaurantID: nil,
+            itemTerms: [],
+            quantity: RestaurantQueryNormalizer.quantity(in: originalParent),
+            modifierTerms: []
+        )) {
+            return direct
+        }
         let resolverDescription = descriptionParts.count > 1
             ? intent.interpretedText + "\nClarification:" + descriptionParts.dropFirst().joined(separator: "Clarification:")
             : intent.interpretedText
         let parentDescription = resolverDescription.components(separatedBy: "Clarification:").first ?? resolverDescription
-        let provider = LocalRestaurantNutritionProvider(store: store)
         return await provider.match(RestaurantFoodQuery(
             rawText: resolverDescription,
             restaurantID: intent.restaurantID,

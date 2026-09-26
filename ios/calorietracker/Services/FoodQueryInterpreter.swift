@@ -14,6 +14,7 @@ struct FoodQueryIntent: Equatable, Sendable {
     let items: [Item]
     let restaurantID: String?
     let confidence: Double
+    let unresolvedTerms: [String]
 
     var hasMultipleItems: Bool { items.count > 1 }
 }
@@ -21,9 +22,12 @@ struct FoodQueryIntent: Equatable, Sendable {
 /// Converts noisy typed or dictated food language into conservative canonical
 /// food terms. Nutrition remains the responsibility of the existing resolvers.
 enum FoodQueryInterpreter {
+    private static let bundledStore = RestaurantDatasetStore.bundled()
+    private static let bundledCandidates = menuCandidates(from: bundledStore)
+    private static let bundledContextTerms = recognizedContextTerms(from: bundledStore)
     private struct Candidate {
         let name: String
-        let aliases: [String]
+        let compactAliases: [String]
         let restaurantID: String?
         let category: String?
     }
@@ -34,14 +38,14 @@ enum FoodQueryInterpreter {
         let score: Double
     }
 
-    static func interpret(_ rawText: String, store: RestaurantDatasetStore? = RestaurantDatasetStore.bundled()) -> FoodQueryIntent {
+    static func interpret(_ rawText: String, store: RestaurantDatasetStore? = nil) -> FoodQueryIntent {
         let cleaned = lexicalCleanup(rawText)
         let words = cleaned.split(separator: " ").map(String.init)
         guard !words.isEmpty else {
-            return FoodQueryIntent(rawText: rawText, interpretedText: rawText, items: [], restaurantID: nil, confidence: 0)
+            return FoodQueryIntent(rawText: rawText, interpretedText: rawText, items: [], restaurantID: nil, confidence: 0, unresolvedTerms: [])
         }
 
-        let candidates = menuCandidates(from: store)
+        let candidates = store == nil ? bundledCandidates : menuCandidates(from: store)
         let matches = nonOverlappingMatches(in: words, candidates: candidates)
         let matchedRestaurantIDs = Set(matches.compactMap { $0.candidate.restaurantID })
         let restaurantID = matchedRestaurantIDs.count == 1 ? matchedRestaurantIDs.first : nil
@@ -71,6 +75,16 @@ enum FoodQueryInterpreter {
             .joined(separator: " and ")
             .replacingOccurrences(of: " and no ", with: " no ")
             .replacingOccurrences(of: " and without ", with: " without ")
+            .replacingOccurrences(of: #"\b([0-9]+) and "#, with: "$1 ", options: .regularExpression)
+
+        let occupied = Set(matches.flatMap { $0.range })
+        let contextTerms = store == nil ? bundledContextTerms : recognizedContextTerms(from: store)
+        let unresolvedTerms = words.indices.compactMap { index -> String? in
+            guard !occupied.contains(index) else { return nil }
+            let word = words[index]
+            guard !isStructuralTerm(word), !contextTerms.contains(word) else { return nil }
+            return word
+        }
 
         let confidence = items.map(\.confidence).min() ?? (cleaned == RestaurantQueryNormalizer.normalize(rawText) ? 1 : 0.75)
         return FoodQueryIntent(
@@ -78,7 +92,8 @@ enum FoodQueryInterpreter {
             interpretedText: interpreted.isEmpty ? cleaned : interpreted,
             items: items,
             restaurantID: restaurantID,
-            confidence: confidence
+            confidence: confidence,
+            unresolvedTerms: unresolvedTerms
         )
     }
 
@@ -105,13 +120,19 @@ enum FoodQueryInterpreter {
         let replacements = [
             "nuggies": "nuggets", "avo": "avocado", "brocoli": "broccoli",
             "chiken": "chicken", "coffy": "coffee", "yog": "yoghurt",
-            "latay": "latte", "toasty": "toastie", "maccas": "maccas"
+            "latay": "latte", "toasty": "toastie", "nana": "banana",
+            "aple": "apple", "stake": "steak", "veg": "vegetables",
+            "ry": "rye"
         ]
         for index in words.indices {
             if let replacement = replacements[words[index]] { words[index] = replacement }
+            if words[index] == "one", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "1" }
+            if words[index] == "two", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "2" }
             if words[index] == "too", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "2" }
+            if words[index] == "four", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "4" }
             if words[index] == "six", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "6" }
-            if words[index] == "for", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "4" }
+            if words[index] == "for", hasFollowingCountableFood(words, after: index) { words[index] = "4" }
+            if words[index] == "ten", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "10" }
         }
         return words.joined(separator: " ")
     }
@@ -120,12 +141,62 @@ enum FoodQueryInterpreter {
         ["egg", "eggs", "wing", "wings", "nugget", "nuggets", "nuggies", "slice", "slices"].contains(word)
     }
 
+    private static func hasFollowingCountableFood(_ words: [String], after index: Int) -> Bool {
+        let next = index + 1
+        if next < words.count, isCountableFood(words[next]) { return true }
+        let afterNext = index + 2
+        return afterNext < words.count && isCountableFood(words[afterNext])
+    }
+
+    static func isClearlyUnmatchedFood(_ word: String) -> Bool {
+        ["apple", "banana", "potato", "salad", "rice", "broccoli", "yoghurt", "avocado", "coffee"].contains(word)
+    }
+
+    private static func isStructuralTerm(_ word: String) -> Bool {
+        if Int(word) != nil { return true }
+        return [
+            "a", "an", "and", "ate", "for", "had", "i", "just", "lunch", "of", "on", "the", "with",
+            "large", "medium", "original", "regular", "small", "only", "no", "without", "meal", "box",
+            "piece", "pieces", "serving", "servings", "slice", "slices"
+        ].contains(word)
+    }
+
+    private static func recognizedContextTerms(from store: RestaurantDatasetStore?) -> Set<String> {
+        guard let dataset = store?.dataset else { return [] }
+        var terms = Set<String>()
+        func add(_ value: String) {
+            let normalized = RestaurantQueryNormalizer.normalize(value)
+            for term in normalized.split(separator: " ") {
+                terms.insert(String(term))
+            }
+        }
+        for restaurant in dataset.restaurants {
+            add(restaurant.name)
+            for alias in restaurant.aliases { add(alias) }
+        }
+        for item in dataset.menuItems {
+            for modifier in item.modifiers {
+                add(modifier.name)
+                for alias in modifier.aliases { add(alias) }
+            }
+            for variant in item.variants {
+                add(variant.name)
+                for alias in variant.aliases { add(alias) }
+            }
+        }
+        return terms
+    }
+
     private static func menuCandidates(from store: RestaurantDatasetStore?) -> [Candidate] {
         guard let dataset = store?.dataset else { return [] }
         return dataset.menuItems.map { item in
-            Candidate(
+            var compactAliases: [String] = []
+            for alias in item.aliases + [item.name] {
+                compactAliases.append(compact(alias))
+            }
+            return Candidate(
                 name: item.name,
-                aliases: item.aliases + [item.name],
+                compactAliases: compactAliases,
                 restaurantID: item.provenance?.restaurantID,
                 category: item.category
             )
@@ -138,8 +209,9 @@ enum FoodQueryInterpreter {
             for length in 1...min(5, words.count - start) {
                 let range = start..<(start + length)
                 let phrase = words[range].joined(separator: " ")
+                let compactPhrase = compact(phrase)
                 for candidate in candidates {
-                    guard let score = candidate.aliases.map({ similarity(phrase, $0) }).max(),
+                    guard let score = candidate.compactAliases.map({ similarity(compactPhrase, $0) }).max(),
                           score >= threshold(for: phrase, tokenCount: length)
                     else { continue }
                     possible.append(Match(range: range, candidate: candidate, score: score))
@@ -148,7 +220,11 @@ enum FoodQueryInterpreter {
         }
 
         let unambiguous = Dictionary(grouping: possible, by: \.range).compactMap { _, matches -> Match? in
-            let ordered = matches.sorted { $0.score > $1.score }
+            let ordered = matches.sorted {
+                if $0.score != $1.score { return $0.score > $1.score }
+                if $0.range.count != $1.range.count { return $0.range.count > $1.range.count }
+                return $0.candidate.name < $1.candidate.name
+            }
             guard let best = ordered.first else { return nil }
             if let second = ordered.dropFirst().first, best.score < 0.9, best.score - second.score < 0.08 {
                 return nil
@@ -157,14 +233,16 @@ enum FoodQueryInterpreter {
         }
         let ranked = unambiguous.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
-            return $0.range.count > $1.range.count
+            if $0.range.count != $1.range.count { return $0.range.count > $1.range.count }
+            if $0.range.lowerBound != $1.range.lowerBound { return $0.range.lowerBound < $1.range.lowerBound }
+            return $0.candidate.name < $1.candidate.name
         }
         var occupied = Set<Int>()
         var selected: [Match] = []
         for match in ranked {
             guard match.range.allSatisfy({ !occupied.contains($0) }) else { continue }
             // A one-token generic category is not enough to choose a branded item.
-            if match.range.count == 1, ["burger", "chicken", "coke", "wonder"].contains(words[match.range.lowerBound]) { continue }
+            if match.range.count == 1, ["burger", "chicken", "coke", "wonder", "chips"].contains(words[match.range.lowerBound]) { continue }
             selected.append(match)
             occupied.formUnion(match.range)
         }
@@ -178,12 +256,10 @@ enum FoodQueryInterpreter {
     }
 
     private static func similarity(_ lhs: String, _ rhs: String) -> Double {
-        let left = compact(lhs)
-        let right = compact(rhs)
-        guard !left.isEmpty, !right.isEmpty else { return 0 }
-        if left == right { return 1 }
-        let distance = levenshtein(left, right)
-        return 1 - (Double(distance) / Double(max(left.count, right.count)))
+        guard !lhs.isEmpty, !rhs.isEmpty else { return 0 }
+        if lhs == rhs { return 1 }
+        let distance = levenshtein(lhs, rhs)
+        return 1 - (Double(distance) / Double(max(lhs.count, rhs.count)))
     }
 
     private static func compact(_ value: String) -> String {
