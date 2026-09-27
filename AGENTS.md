@@ -53,6 +53,8 @@ Codex owns implementation. Keep each task scoped: inspect → identify the root 
 
 Use validation in proportion to the change: focused compile/tests, relevant XCUITest for changed deterministic user journeys, Reticle for meaningful UI changes, and physical-device review when warranted. Conserve agent credits.
 
+At the end of substantial coding tasks, update repository-root CURRENT_HANDOFF.md with the latest task state, validation evidence, Git state, active risks, and recommended next task. Replace stale handoff information rather than accumulating a diary. Do not include secrets or personal/customer data.
+
 ## Git and scope hygiene
 
 Always inspect git status before editing. Preserve user changes; do not clean, revert, overwrite, commit, or push unless expressly instructed. In particular, leave these known unrelated modified files untouched unless targeted: `project.pbxproj`, `Info.plist`, `InfoPlist.xcstrings`, `LocalModels.xcstrings`, `Localizable.xcstrings`, and `WeeklyChallenge.xcstrings`. Inspect the exact task-related diff before finishing.
