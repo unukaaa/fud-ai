@@ -8,6 +8,10 @@ import Testing
             return GeminiService.FoodAnalysis(name: "Homemade potato salad", calories: 180, protein: 3,
                                               carbs: 24, fat: 8, servingSizeGrams: 150)
         }
+        if normalized.contains("coleslaw") {
+            return GeminiService.FoodAnalysis(name: "Homemade coleslaw", calories: 120, protein: 2,
+                                              carbs: 12, fat: 7, servingSizeGrams: 100)
+        }
         if normalized.contains("banana") {
             return GeminiService.FoodAnalysis(name: "Banana", calories: 100, protein: 1,
                                               carbs: 25, fat: 0, servingSizeGrams: 118)
@@ -18,7 +22,8 @@ import Testing
         }
         if normalized.contains("egg") {
             let includesCoffee = normalized.contains("coffee")
-            var analysis = GeminiService.FoodAnalysis(name: includesCoffee ? "Eggs rye toast coffee with milk" : "Eggs rye toast", calories: includesCoffee ? 350 : 310,
+            let includesOil = normalized.contains("oil")
+            var analysis = GeminiService.FoodAnalysis(name: includesCoffee ? "Eggs rye toast coffee with milk" : "Eggs rye toast", calories: includesCoffee ? 350 : (includesOil ? 350 : 310),
                                                       protein: 20, carbs: 35, fat: 12, servingSizeGrams: 300)
             analysis.ingredients = [
                 MealIngredient(name: "Eggs", grams: 100, calories: 150, protein: 12, carbs: 1, fat: 10),
@@ -27,6 +32,10 @@ import Testing
             if includesCoffee {
                 analysis.ingredients.append(MealIngredient(name: "Coffee with milk", grams: 120,
                                                            calories: 40, protein: 3, carbs: 4, fat: 0))
+            }
+            if includesOil {
+                analysis.ingredients.append(MealIngredient(name: "Oil", grams: 5,
+                                                           calories: 40, protein: 0, carbs: 0, fat: 4))
             }
             return analysis
         }
@@ -67,6 +76,56 @@ import Testing
         #expect(resolution.analysis?.nutritionSource == "Mixed nutrition sources")
         #expect(resolution.analysis?.ingredients.count == 2)
         #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+    }
+
+    @Test(arguments: ["zinger burger homemade potato salad", "zinger burger home made potato salad"])
+    func deviceResidualFoodStaysOnePhrase(query: String) async throws {
+        let resolution = try await FoodQueryResolutionService.resolve(description: query, estimate: estimated)
+        #expect(resolution.isComplete)
+        #expect(resolution.components.count == 2)
+        #expect(resolution.components.contains { $0.state == .verifiedRestaurant && $0.name.contains("Zinger") })
+        #expect(resolution.components.contains { $0.state == .aiEstimate && $0.name == "Homemade potato salad" })
+        #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+    }
+
+    @Test(arguments: ["too eggs ry toast bit oil", "2 eggs rye toast bit of oil"])
+    func deviceConversationalQuantitiesSurviveClarification(query: String) async throws {
+        let initial = try await FoodQueryResolutionService.resolve(description: query, estimate: estimated)
+        #expect(initial.isComplete)
+        #expect(initial.components.map(\.name).contains("Oil"))
+        // This mirrors ContentView's Phase 2D continuation after the toast choice.
+        let answer = try await estimated("2 eggs rye toast bit of oil\nClarification: Toast quantity: 2 slices")
+        let final = FoodQueryResolutionService.trackEstimate(answer, query: query)
+        #expect(final.isComplete)
+        #expect(final.unresolvedComponents.isEmpty)
+        #expect(final.components.map(\.name).contains("Oil"))
+        #expect(final.analysis?.calories == final.components.compactMap(\.calories).reduce(0, +))
+    }
+
+    @Test func otherCompositeFoodsKeepTheirPhraseBoundaries() async throws {
+        let coleslaw = try await FoodQueryResolutionService.resolve(
+            description: "zinger burger homemade coleslaw", estimate: estimated)
+        #expect(coleslaw.isComplete)
+        #expect(coleslaw.components.count == 2)
+        #expect(coleslaw.components.contains { $0.name == "Homemade coleslaw" })
+
+        for query in ["coffee with milk", "greek yoghurt with berries"] {
+            let result = try await FoodQueryResolutionService.resolve(description: query, estimate: estimated)
+            #expect(result.isComplete)
+            #expect(result.components.count == 1)
+            #expect(result.components.first?.query == query)
+        }
+    }
+
+    @Test func genuinelyUnknownFoodPhraseRemainsUnresolved() async throws {
+        let resolution = try await FoodQueryResolutionService.resolve(
+            description: "zinger burger mysterious garden salad",
+            estimate: { _ in GeminiService.FoodAnalysis(name: "Garden", calories: 100, protein: 1,
+                                                         carbs: 20, fat: 1, servingSizeGrams: 100) })
+        #expect(!resolution.isComplete)
+        #expect(resolution.components.contains { $0.state == .verifiedRestaurant })
+        #expect(resolution.unresolvedComponents.count == 1)
+        #expect(resolution.unresolvedComponents.first?.name == "mysterious garden salad")
     }
 
     @Test func threeSourceQueryAccountsForDrinkAndHomemadeSide() async throws {
@@ -135,7 +194,7 @@ import Testing
                                            carbs: 20, fat: 1, servingSizeGrams: 100)
             })
         #expect(!resolution.isComplete)
-        #expect(resolution.components.contains { $0.state == .unresolved && $0.name == "salad" })
+        #expect(resolution.components.contains { $0.state == .unresolved && $0.name == "homemade potato salad" })
         #expect(resolution.components.contains { $0.state == .verifiedRestaurant })
         #expect(resolution.analysis == nil)
         let message = GeminiService.analysisErrorMessage(

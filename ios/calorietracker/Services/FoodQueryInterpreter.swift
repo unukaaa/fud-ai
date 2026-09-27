@@ -189,7 +189,7 @@ enum FoodQueryInterpreter {
             if words[index] == "for", hasFollowingCountableFood(words, after: index) { words[index] = "4" }
             if words[index] == "ten", hasFollowingCountableFood(words, after: index) { words[index] = "10" }
         }
-        return words.joined(separator: " ")
+        return words.joined(separator: " ").replacingOccurrences(of: "home made", with: "homemade")
     }
 
     private static func isCountableFood(_ word: String) -> Bool {
@@ -212,7 +212,7 @@ enum FoodQueryInterpreter {
         return [
             "a", "an", "and", "ate", "for", "had", "i", "just", "lunch", "of", "on", "the", "with",
             "large", "medium", "original", "regular", "small", "only", "no", "without", "meal", "box",
-            "piece", "pieces", "serving", "servings", "slice", "slices"
+            "piece", "pieces", "serving", "servings", "slice", "slices", "bit", "little"
         ].contains(word)
     }
 
@@ -554,7 +554,9 @@ enum FoodQueryResolutionService {
                 ))
             }
         }
-        for token in missing { records.append(unresolved(token)) }
+        // A residual query is a food phrase, not a bag of independent words.
+        // Retain it intact when the estimate omits any meaningful part.
+        if !missing.isEmpty { records.append(unresolved(query)) }
         var tracked = analysis
         tracked.foodResolutionComponents = records
         return FoodQueryResolution(analysis: missing.isEmpty ? tracked : nil, restaurantMatch: nil,
@@ -585,8 +587,8 @@ enum FoodQueryResolutionService {
     }
 
     private static func meaningfulTokens(_ value: String) -> [String] {
-        let ignored: Set<String> = ["a", "an", "and", "with", "of", "the", "on", "in", "for", "had", "i", "homemade", "small", "medium", "large", "regular", "only", "plus"]
-        return RestaurantQueryNormalizer.normalize(value).split(separator: " ").map(String.init)
+        let ignored: Set<String> = ["a", "an", "and", "with", "of", "the", "on", "in", "for", "had", "i", "homemade", "bit", "little", "small", "medium", "large", "regular", "only", "plus"]
+        return FoodQueryInterpreter.lexicalCleanup(value).split(separator: " ").map(String.init)
             .filter { Int($0) == nil && !ignored.contains($0) }
             .map { $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0 }
             .map { $0 == "coke" ? "cola" : $0 }
