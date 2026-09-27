@@ -4,16 +4,19 @@ import Combine
 struct TextFoodInputView: View {
     @State private var foodDescription = ""
     @State private var placeholderIndex = 0
+    @State private var suggestions: [UnifiedFoodSuggestion] = []
     @State private var restaurantSearchIndex = RestaurantFoodSearchIndex.bundled()
     @State private var ausnutSearchIndex = AUSNUTFoodSearchIndex.bundled()
     @FocusState private var isFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var onCancel: () -> Void
     var onSubmit: (String) -> Void
     var onSelectRestaurant: ((RestaurantFoodSelection, String) -> Void)? = nil
     var onSelectAUSNUT: ((AUSNUTFoodSelection) -> Void)? = nil
 
-    var placeholders = [
+    var placeholders: [LocalizedStringResource] = [
         "2 eggs, toast with butter and a coffee",
         "Chipotle burrito bowl with chicken and rice",
         "Domino's pepperoni pizza, 2 slices",
@@ -22,10 +25,27 @@ struct TextFoodInputView: View {
 
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
-    private var suggestions: [UnifiedFoodSuggestion] {
-        guard onSelectRestaurant != nil else { return [] }
-        return UnifiedFoodSearchIndex(restaurants: restaurantSearchIndex, ausnut: ausnutSearchIndex)
-            .search(foodDescription, limit: 5)
+    private var meaningfulQuery: String {
+        foodDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var analyseLabel: LocalizedStringResource {
+        meaningfulQuery.isEmpty ? "Analyse" : "Analyse \"\(meaningfulQuery)\""
+    }
+
+    private var searchPanelWidth: CGFloat { dynamicTypeSize.isAccessibilitySize ? 360 : 320 }
+    private var searchPanelHeight: CGFloat { dynamicTypeSize.isAccessibilitySize ? 520 : 410 }
+    private var suggestionAreaHeight: CGFloat { dynamicTypeSize.isAccessibilitySize ? 260 : 190 }
+
+    private func updateSuggestions(for query: String) {
+        guard onSelectRestaurant != nil, !query.isEmpty else {
+            suggestions = []
+            return
+        }
+        suggestions = UnifiedFoodSearchIndex(
+            restaurants: restaurantSearchIndex,
+            ausnut: onSelectAUSNUT == nil ? nil : ausnutSearchIndex
+        ).search(query, limit: 5)
     }
 
     private var isBrandOnlyQuery: Bool {
@@ -35,10 +55,9 @@ struct TextFoodInputView: View {
 
     private var analyseButton: some View {
         Button {
-            onSubmit(foodDescription)
+            onSubmit(meaningfulQuery)
         } label: {
-            Text(foodDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                 ? "Analyze" : "Analyse \"\(foodDescription.trimmingCharacters(in: .whitespacesAndNewlines))\"")
+            Text(analyseLabel)
                 .font(suggestions.isEmpty ? .headline : .subheadline.weight(.medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -47,7 +66,7 @@ struct TextFoodInputView: View {
         .tint(AppColors.calorie)
         .controlSize(.large)
         .frame(height: 50)
-        .disabled(foodDescription.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(meaningfulQuery.isEmpty)
         .accessibilityIdentifier("searchFood.analyse")
     }
 
@@ -66,6 +85,7 @@ struct TextFoodInputView: View {
                         ))
                         .id(placeholderIndex)
                         .allowsHitTesting(false)
+                        .accessibilityHidden(true)
                 }
 
                 TextField("", text: $foodDescription, axis: .vertical)
@@ -74,6 +94,8 @@ struct TextFoodInputView: View {
                     .textFieldStyle(.plain)
                     .autocorrectionDisabled()
                     .focused($isFocused)
+                    .accessibilityLabel("Search food")
+                    .accessibilityHint("Search verified foods or describe a meal to analyse")
                     .accessibilityIdentifier("searchFood.query")
                     .padding(.horizontal, 6)
                     .padding(.vertical, 10)
@@ -136,30 +158,32 @@ struct TextFoodInputView: View {
                                 .accessibilityIdentifier("searchFood.\(suggestion.id)")
                                 }
                             case .ausnut(let suggestion):
-                                Button {
-                                    onSelectAUSNUT?(suggestion.selection)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: "leaf.circle")
-                                            .foregroundStyle(.secondary)
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(suggestion.title)
-                                                .font(.subheadline.weight(.medium))
-                                                .foregroundStyle(.primary)
-                                                .lineLimit(2)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                            Text("AUSNUT 2023 · Australian food data")
-                                                .font(.caption)
+                                if let onSelectAUSNUT {
+                                    Button {
+                                        onSelectAUSNUT(suggestion.selection)
+                                    } label: {
+                                        HStack(spacing: 10) {
+                                            Image(systemName: "leaf.circle")
                                                 .foregroundStyle(.secondary)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(suggestion.title)
+                                                    .font(.subheadline.weight(.medium))
+                                                    .foregroundStyle(.primary)
+                                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                Text("AUSNUT 2023 · Australian food data")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Spacer(minLength: 0)
                                         }
-                                        Spacer(minLength: 0)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .contentShape(Rectangle())
+                                    .buttonStyle(.plain)
+                                    .accessibilityIdentifier("searchFood.\(suggestion.id)")
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("searchFood.\(suggestion.id)")
                             }
                             if result.id != suggestions.last?.id {
                                 Divider().padding(.leading, 44)
@@ -169,7 +193,7 @@ struct TextFoodInputView: View {
                 }
                 // An anchored popover repositions when its intrinsic height changes.
                 // Reserve the same scroll area as results appear and disappear.
-                .frame(height: 190)
+                .frame(height: suggestionAreaHeight)
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
             }
 
@@ -193,10 +217,14 @@ struct TextFoodInputView: View {
             .foregroundStyle(.secondary)
         }
         .padding(20)
-        .frame(width: 320, height: onSelectRestaurant == nil ? nil : 410, alignment: .top)
+        .frame(width: searchPanelWidth, height: onSelectRestaurant == nil ? nil : searchPanelHeight,
+               alignment: .top)
         .onAppear { isFocused = true }
+        .onChange(of: meaningfulQuery, initial: true) { _, query in
+            updateSuggestions(for: query)
+        }
         .onReceive(timer) { _ in
-            guard foodDescription.isEmpty else { return }
+            guard foodDescription.isEmpty, !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.3)) {
                 placeholderIndex = (placeholderIndex + 1) % placeholders.count
             }

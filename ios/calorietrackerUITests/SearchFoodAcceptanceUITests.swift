@@ -78,7 +78,7 @@ final class SearchFoodAcceptanceUITests: XCTestCase {
         let app = openSearch(typing: "Big mac")
         let product = app.buttons["searchFood.item:mcd-au-big-mac"]
         XCTAssertTrue(product.waitForExistence(timeout: 5), "Big Mac suggestion is missing")
-        product.tap()
+        product.staticTexts["Big Mac"].tap()
         assertReviewFood(in: app)
         XCTAssertTrue(app.staticTexts["reviewFood.name"].label.contains("Big Mac"),
                       "Verified handoff did not retain Big Mac identity")
@@ -165,10 +165,22 @@ final class SearchFoodAcceptanceUITests: XCTestCase {
     @MainActor
     func testComposedMealDoesNotBecomeComponentSuggestion() {
         let app = openSearch(typing: "chicken avocado sandwich")
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Search Food composed-meal suggestions"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
         XCTAssertTrue(app.buttons["searchFood.analyse"].waitForExistence(timeout: 5))
         let ausnut = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "searchFood.ausnut:")
         ).firstMatch
         XCTAssertFalse(ausnut.exists, "A partial AUSNUT component must not stand in for the meal")
+    }
+
+    @MainActor
+    func testWhitespaceOnlyQueryCannotAnalyse() {
+        let app = openSearch(typing: "  \n  ")
+        let analyse = app.buttons["searchFood.analyse"]
+        XCTAssertTrue(analyse.waitForExistence(timeout: 5))
+        XCTAssertFalse(analyse.isEnabled, "Whitespace-only input must not submit")
     }
 }
