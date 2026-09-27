@@ -939,6 +939,7 @@ struct HomeView: View {
     @State private var showManualPopover = false
     @State private var showAddMealSheet = false
     @State private var clarificationPrompt: SmartClarificationPrompt?
+    @State private var ausnutPortionPrompt: AUSNUTPortionPrompt?
     @State private var showSiriPhrases = false
     @State private var savedMealsMode: SavedMealsMode?
     @State private var showCopyFromDaySheet = false
@@ -1573,6 +1574,20 @@ private var dailyStepsTaskKey: String {
                                     afterLoggingPresentationDismisses {
                                         startRestaurantSelection(selection, title: title)
                                     }
+                                },
+                                onSelectAUSNUT: { selection in
+                                    showTextPopover = false
+                                    currentImage = nil
+                                    currentImages = []
+                                    currentEmoji = nil
+                                    currentFoodSource = .textInput
+                                    afterLoggingPresentationDismisses {
+                                        if let identity = AustralianNutritionService.identity(forID: selection.foodID) {
+                                            ausnutPortionPrompt = AUSNUTPortionPrompt(selection: selection, identity: identity)
+                                        } else {
+                                            presentAnalysisError(IncompleteFoodQueryError(foods: [selection.foodID]))
+                                        }
+                                    }
                                 }
                             )
                             .presentationCompactAdaptation(.popover)
@@ -1842,6 +1857,20 @@ private var dailyStepsTaskKey: String {
                         startRestaurantSelection(selection, title: prompt.originalText, clarificationAnswer: answer)
                     } else {
                         startTextAnalysis(prompt.originalText + "\nClarification: " + answer, allowClarification: false)
+                    }
+                }
+            }
+            .sheet(item: $ausnutPortionPrompt) { prompt in
+                AUSNUTPortionView(prompt: prompt) { portion in
+                    ausnutPortionPrompt = nil
+                    let resolution = FoodQueryResolutionService.resolve(selection: prompt.selection, portion: portion)
+                    guard resolution.isComplete, let result = resolution.analysis else {
+                        presentAnalysisError(IncompleteFoodQueryError(foods: [prompt.identity.name]))
+                        return
+                    }
+                    currentEmoji = result.emoji
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                        presentFoodResult(result)
                     }
                 }
             }
@@ -2636,6 +2665,116 @@ private var dailyStepsTaskKey: String {
         }
     }
 
+}
+
+private struct AUSNUTPortionPrompt: Identifiable {
+    let id = UUID()
+    let selection: AUSNUTFoodSelection
+    let identity: AUSNUTFoodIdentity
+}
+
+private struct AUSNUTPortionView: View {
+    let prompt: AUSNUTPortionPrompt
+    let onResolve: (AUSNUTPortion) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedMeasureIndex: Int?
+    @State private var usingGrams = false
+    @State private var gramsText = ""
+    @FocusState private var gramsFocused: Bool
+
+    private var choices: [AUSNUTPortionChoice] {
+        AUSNUTPortionChoice.choices(for: prompt.identity)
+    }
+
+    private var selectedPortion: AUSNUTPortion? {
+        if usingGrams {
+            guard let grams = Double(gramsText.replacingOccurrences(of: ",", with: ".")),
+                  grams.isFinite, grams > 0 else { return nil }
+            return .grams(grams)
+        }
+        guard let index = selectedMeasureIndex else { return nil }
+        return .measure(index: index, quantity: 1)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(prompt.identity.name)
+                        .font(.title3.bold())
+                        .accessibilityIdentifier("ausnutPortion.foodName")
+                    Text("AUSNUT 2023 · Food Standards Australia New Zealand")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("How much did you have?")
+                        .font(.headline)
+                    ForEach(choices) { choice in
+                        Button {
+                            selectedMeasureIndex = choice.index
+                            usingGrams = false
+                            gramsFocused = false
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(choice.title)
+                                    Text("About \(choice.grams.formatted(.number.precision(.fractionLength(0...1)))) g")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: !usingGrams && selectedMeasureIndex == choice.index
+                                      ? "checkmark.circle.fill" : "circle")
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(!usingGrams && selectedMeasureIndex == choice.index ? AppColors.calorie : .secondary)
+                        .accessibilityIdentifier("ausnutPortion.measure.\(choice.index)")
+                    }
+                    HStack(spacing: 12) {
+                        Image(systemName: usingGrams ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(usingGrams ? AppColors.calorie : .secondary)
+                        Text("Grams")
+                        Spacer()
+                        TextField("Enter grams", text: $gramsText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .focused($gramsFocused)
+                            .frame(width: 110)
+                            .accessibilityIdentifier("ausnutPortion.grams")
+                    }
+                    .padding(12)
+                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                    .onTapGesture { usingGrams = true; selectedMeasureIndex = nil; gramsFocused = true }
+                    .onChange(of: gramsText) { _, newValue in
+                        if !newValue.isEmpty { usingGrams = true; selectedMeasureIndex = nil }
+                    }
+                }
+                .padding(22)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button("Continue") {
+                    if let selectedPortion { onResolve(selectedPortion) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(selectedPortion == nil)
+                .accessibilityIdentifier("ausnutPortion.continue")
+                .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(.regularMaterial)
+            }
+            .navigationTitle("Choose portion")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationContentInteraction(.scrolls)
+    }
 }
 
 private struct SmartClarificationPrompt: Identifiable {

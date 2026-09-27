@@ -13,6 +13,7 @@ enum AustralianNutritionService {
         let name: String
         let description: String?
         let derivation: String?
+        let measures: [AUSNUTFoodMeasure]?
         let kcal: Double
         let protein: Double
         let carbs: Double
@@ -53,6 +54,82 @@ enum AustralianNutritionService {
         else { return nil }
         return try? JSONDecoder().decode(Database.self, from: data)
     }()
+
+    private static let foodsByID: [String: Food] = {
+        Dictionary(uniqueKeysWithValues: (database?.foods ?? []).map { ($0.id, $0) })
+    }()
+
+    static var searchableIdentities: [AUSNUTFoodIdentity]? {
+        database?.foods.map(identity(for:))
+    }
+
+    /// A selected ID is authoritative: a missing ID never triggers name or AI fallback.
+    static func identity(forID id: String) -> AUSNUTFoodIdentity? {
+        foodsByID[id].map(identity(for:))
+    }
+
+    /// Resolves only the selected record and an explicit amount. No text or AI fallback.
+    static func analysis(for selection: AUSNUTFoodSelection, portion: AUSNUTPortion) -> GeminiService.FoodAnalysis? {
+        guard let food = foodsByID[selection.foodID],
+              let amount = amount(for: portion, measures: food.measures ?? []),
+              (food.kcal * amount.grams / 100).isFinite,
+              food.kcal * amount.grams / 100 < Double(Int.max)
+        else { return nil }
+
+        let validMeasures = (food.measures ?? []).filter {
+            !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && $0.grams.isFinite && $0.grams > 0
+                && $0.quantity.isFinite && $0.quantity > 0
+        }
+        let nameCounts = Dictionary(grouping: validMeasures, by: { $0.name.lowercased() }).mapValues(\.count)
+        let unitOptions = validMeasures.filter { nameCounts[$0.name.lowercased()] == 1 }.map {
+            ServingUnitOption(unit: $0.name, gramsPerUnit: $0.grams / $0.quantity)
+        }
+        let selectedUnit: String
+        let selectedQuantity: Double
+        if let measureIndex = amount.measureIndex,
+           let selected = (food.measures ?? []).indices.contains(measureIndex)
+                ? food.measures?[measureIndex] : nil,
+           nameCounts[selected.name.lowercased()] == 1 {
+            selectedUnit = selected.name
+            selectedQuantity = amount.quantity
+        } else {
+            selectedUnit = "g"
+            selectedQuantity = amount.grams
+        }
+        let base = GeminiService.FoodAnalysis(
+            name: food.name, calories: 0, protein: 0, carbs: 0, fat: 0,
+            servingSizeGrams: amount.grams,
+            servingUnitOptions: unitOptions,
+            selectedServingUnit: selectedUnit,
+            selectedServingQuantity: selectedQuantity
+        )
+        var result = applying(match: Match(food: food, score: 1), grams: amount.grams, to: base)
+        result.nutritionSourceDetail = "Food Standards Australia New Zealand · AUSNUT 2023 · \(food.name)"
+        return result
+    }
+
+    private static func amount(
+        for portion: AUSNUTPortion, measures: [AUSNUTFoodMeasure]
+    ) -> (grams: Double, quantity: Double, measureIndex: Int?)? {
+        switch portion {
+        case .grams(let grams):
+            guard grams.isFinite, grams > 0 else { return nil }
+            return (grams, grams, nil)
+        case .measure(let index, let quantity):
+            guard measures.indices.contains(index), quantity.isFinite, quantity > 0 else { return nil }
+            let measure = measures[index]
+            guard measure.quantity.isFinite, measure.quantity > 0,
+                  measure.grams.isFinite, measure.grams > 0 else { return nil }
+            let grams = quantity * measure.grams / measure.quantity
+            guard grams.isFinite, grams > 0 else { return nil }
+            return (grams, quantity, index)
+        }
+    }
+
+    nonisolated private static func identity(for food: Food) -> AUSNUTFoodIdentity {
+        AUSNUTFoodIdentity(id: food.id, name: food.name, measures: food.measures ?? [])
+    }
 
     static func applyingBestAustralianMatch(to analysis: GeminiService.FoodAnalysis) -> GeminiService.FoodAnalysis {
         guard analysis.productMetadata == nil, analysis.servingSizeIsKnown, analysis.servingSizeGrams > 0 else {

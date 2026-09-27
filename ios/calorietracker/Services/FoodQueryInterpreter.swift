@@ -134,16 +134,19 @@ struct FoodQueryResolution {
     let candidateAnalysis: GeminiService.FoodAnalysis?
     let route: FoodIntentRoute?
     let restaurantSelection: RestaurantFoodSelection?
+    let ausnutSelection: AUSNUTFoodSelection?
 
     init(analysis: GeminiService.FoodAnalysis?, restaurantMatch: RestaurantMatch?,
          components: [FoodResolutionComponent], candidateAnalysis: GeminiService.FoodAnalysis? = nil,
-         route: FoodIntentRoute? = nil, restaurantSelection: RestaurantFoodSelection? = nil) {
+         route: FoodIntentRoute? = nil, restaurantSelection: RestaurantFoodSelection? = nil,
+         ausnutSelection: AUSNUTFoodSelection? = nil) {
         self.analysis = analysis
         self.restaurantMatch = restaurantMatch
         self.components = components
         self.candidateAnalysis = candidateAnalysis
         self.route = route
         self.restaurantSelection = restaurantSelection
+        self.ausnutSelection = ausnutSelection
     }
 
     var unresolvedComponents: [FoodResolutionComponent] {
@@ -179,11 +182,12 @@ struct FoodQueryResolution {
                     deterministicCandidates: attempts.compactMap(\.candidateItemID) + [component.sourceItemID].compactMap { $0 },
                     attemptedResolvers: attempts.map(\.resolver),
                     selectedResolver: component.state == .unresolved ? nil :
-                        (component.sourceItemID != nil ? "RestaurantNutritionProvider" : component.state.rawValue),
+                        (component.state == .ausnut ? "AustralianNutritionService" :
+                            (component.sourceItemID != nil ? "RestaurantNutritionProvider" : component.state.rawValue)),
                     modifiers: attempts.flatMap(\.modifiers),
                     state: component.state,
                     source: component.sourceDetail,
-                    confidence: component.sourceItemID != nil
+                    confidence: (component.state == .verifiedRestaurant || component.state == .partiallyVerifiedRestaurant)
                         ? FoodQueryInterpreter.interpret(component.query).confidence : nil,
                     reason: component.state == .unresolved
                         ? attempts.compactMap(\.reason).last
@@ -549,6 +553,33 @@ enum FoodQueryInterpreter {
 enum FoodQueryResolutionService {
     typealias RestaurantResolver = (String) async -> RestaurantMatch?
     typealias Estimator = (String) async throws -> GeminiService.FoodAnalysis
+
+    /// Search identity is authoritative. Without a valid selected amount the
+    /// food remains unresolved; neither 100 g nor an AI estimate is assumed.
+    static func resolve(
+        selection: AUSNUTFoodSelection, portion: AUSNUTPortion?
+    ) -> FoodQueryResolution {
+        let identity = AustralianNutritionService.identity(forID: selection.foodID)
+        let name = identity?.name ?? selection.foodID
+        let analysis = portion.flatMap { AustralianNutritionService.analysis(for: selection, portion: $0) }
+        let component = FoodResolutionComponent(
+            query: name, name: name, state: analysis == nil ? .unresolved : .ausnut,
+            quantity: analysis?.selectedServingQuantity ?? 1,
+            calories: analysis?.calories, protein: analysis?.protein,
+            carbs: analysis?.carbs, fat: analysis?.fat,
+            sourceDetail: analysis?.nutritionSourceDetail,
+            sourceItemID: identity == nil ? nil : selection.foodID
+        )
+        var tracked = analysis
+        tracked?.foodResolutionComponents = [component]
+        return FoodQueryResolution(
+            analysis: tracked, restaurantMatch: nil, components: [component],
+            route: FoodIntentRoute(
+                state: analysis == nil ? .needsClarification : .resolvedFood,
+                foodIdentity: name, brandID: nil, locationContext: nil, matchedMenuItems: []
+            ), ausnutSelection: selection
+        )
+    }
 
     /// A search selection never falls back to text matching or AI if its IDs
     /// are stale. Keep the same selection for a clarification continuation.

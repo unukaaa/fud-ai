@@ -126,4 +126,49 @@ final class SearchFoodAcceptanceUITests: XCTestCase {
         ).firstMatch
         XCTAssertFalse(verifiedProduct.exists, "Unsupported ordinary food must not appear verified")
     }
+
+    @MainActor
+    func testBananaAUSNUTSuggestionRequiresAndPreservesPortion() {
+        let app = openSearch(typing: "banana")
+        let banana = app.buttons["searchFood.ausnut:16502001"]
+        XCTAssertTrue(banana.waitForExistence(timeout: 5), "Dataset banana identity is missing")
+        banana.staticTexts["Banana, cavendish, peeled, raw"].tap()
+        XCTAssertTrue(app.navigationBars["Choose portion"].waitForExistence(timeout: 10),
+                      "AUSNUT selection bypassed explicit portion choice")
+        XCTAssertEqual(app.staticTexts["ausnutPortion.foodName"].label,
+                       "Banana, cavendish, peeled, raw", "Selected AUSNUT identity changed during handoff")
+        let continueButton = app.buttons["ausnutPortion.continue"]
+        XCTAssertFalse(continueButton.isEnabled, "No portion may be silently assumed")
+        let medium = app.buttons["ausnutPortion.measure.1"]
+        XCTAssertTrue(medium.waitForExistence(timeout: 5), "Dataset medium banana measure is missing")
+        medium.tap()
+        XCTAssertTrue(continueButton.isEnabled)
+        continueButton.tap()
+        assertReviewFood(in: app)
+        XCTAssertEqual(app.staticTexts["reviewFood.source"].label, "AUSNUT Australia")
+        XCTAssertEqual(app.staticTexts["reviewFood.summary.calories"].label, "121 cals")
+        XCTAssertEqual(app.textFields["serving.quantity"].value as? String, "1")
+    }
+
+    @MainActor
+    func testBroccoliShowsAUSNUTIdentity() {
+        let app = openSearch(typing: "broccoli")
+        XCTAssertTrue(app.buttons["searchFood.ausnut:24202001"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testChickenBreastShowsAUSNUTIdentity() {
+        let app = openSearch(typing: "chicken breast")
+        XCTAssertTrue(app.buttons["searchFood.ausnut:18301009"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testComposedMealDoesNotBecomeComponentSuggestion() {
+        let app = openSearch(typing: "chicken avocado sandwich")
+        XCTAssertTrue(app.buttons["searchFood.analyse"].waitForExistence(timeout: 5))
+        let ausnut = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "searchFood.ausnut:")
+        ).firstMatch
+        XCTAssertFalse(ausnut.exists, "A partial AUSNUT component must not stand in for the meal")
+    }
 }

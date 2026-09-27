@@ -5,11 +5,13 @@ struct TextFoodInputView: View {
     @State private var foodDescription = ""
     @State private var placeholderIndex = 0
     @State private var restaurantSearchIndex = RestaurantFoodSearchIndex.bundled()
+    @State private var ausnutSearchIndex = AUSNUTFoodSearchIndex.bundled()
     @FocusState private var isFocused: Bool
 
     var onCancel: () -> Void
     var onSubmit: (String) -> Void
     var onSelectRestaurant: ((RestaurantFoodSelection, String) -> Void)? = nil
+    var onSelectAUSNUT: ((AUSNUTFoodSelection) -> Void)? = nil
 
     var placeholders = [
         "2 eggs, toast with butter and a coffee",
@@ -20,12 +22,16 @@ struct TextFoodInputView: View {
 
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
-    private var suggestions: [SearchFoodSuggestion] {
+    private var suggestions: [UnifiedFoodSuggestion] {
         guard onSelectRestaurant != nil else { return [] }
-        return restaurantSearchIndex?.search(foodDescription, limit: 5) ?? []
+        return UnifiedFoodSearchIndex(restaurants: restaurantSearchIndex, ausnut: ausnutSearchIndex)
+            .search(foodDescription, limit: 5)
     }
 
-    private var isBrandOnlyQuery: Bool { suggestions.first?.kind == .brand }
+    private var isBrandOnlyQuery: Bool {
+        if case .restaurant(let first)? = suggestions.first { return first.kind == .brand }
+        return false
+    }
 
     private var analyseButton: some View {
         Button {
@@ -88,8 +94,9 @@ struct TextFoodInputView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(12)
                         }
-                        ForEach(suggestions) { suggestion in
-                            if suggestion.kind == .brand {
+                        ForEach(suggestions) { result in
+                            switch result {
+                            case .restaurant(let suggestion) where suggestion.kind == .brand:
                                 HStack(spacing: 10) {
                                     Image(systemName: "storefront")
                                         .foregroundStyle(.secondary)
@@ -103,7 +110,8 @@ struct TextFoodInputView: View {
                                 .padding(.vertical, 10)
                                 .accessibilityElement(children: .combine)
                                 .accessibilityIdentifier("searchFood.brand.\(suggestion.restaurantID)")
-                            } else if let selection = suggestion.restaurantSelection {
+                            case .restaurant(let suggestion):
+                                if let selection = suggestion.restaurantSelection {
                                 Button {
                                     onSelectRestaurant?(selection, suggestion.title)
                                 } label: {
@@ -126,8 +134,34 @@ struct TextFoodInputView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("searchFood.\(suggestion.id)")
+                                }
+                            case .ausnut(let suggestion):
+                                Button {
+                                    onSelectAUSNUT?(suggestion.selection)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "leaf.circle")
+                                            .foregroundStyle(.secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(suggestion.title)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(.primary)
+                                                .lineLimit(2)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                            Text("AUSNUT 2023 · Australian food data")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("searchFood.\(suggestion.id)")
                             }
-                            if suggestion.id != suggestions.last?.id {
+                            if result.id != suggestions.last?.id {
                                 Divider().padding(.leading, 44)
                             }
                         }
