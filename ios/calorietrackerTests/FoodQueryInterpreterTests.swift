@@ -2,6 +2,146 @@ import Testing
 @testable import calorietracker
 
 @MainActor struct FoodQueryInterpreterTests {
+    @Test func resolutionDiagnosticsCaptureMixedSuccess() async throws {
+        let query = "zinger burger homemade potato salad"
+        let result = try await FoodQueryResolutionService.resolve(description: query, estimate: { _ in
+            GeminiService.FoodAnalysis(name: "Homemade potato salad", calories: 180,
+                                       protein: 3, carbs: 24, fat: 8, servingSizeGrams: 150)
+        })
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: query)
+        #expect(trace.complete)
+        #expect(trace.routeState == .ordinaryFoodFallback)
+        #expect(trace.components.count == 2)
+        #expect(trace.attempts.contains { $0.resolver == "RestaurantNutritionProvider" && $0.candidateItemID != nil })
+        #expect(trace.attempts.contains { $0.resolver == "Text nutrition fallback" && $0.outcome == "selected" })
+        #expect(trace.text.contains("Completeness:"))
+        #endif
+    }
+
+    @Test func resolutionDiagnosticsCaptureBrandDiscovery() async throws {
+        let result = try await FoodQueryResolutionService.resolve(description: "KFC", estimate: { _ in
+            Issue.record("Brand discovery must not invoke nutrition fallback")
+            return GeminiService.FoodAnalysis(name: "Unknown", calories: 0, protein: 0, carbs: 0, fat: 0,
+                                              servingSizeGrams: 0)
+        })
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: "KFC")
+        #expect(trace.routeState == .brandDiscovery)
+        #expect(trace.attempts.count == 1)
+        #expect(trace.attempts[0].outcome == "brandDiscovery")
+        #endif
+    }
+
+    @Test func resolutionDiagnosticsCaptureKnownFood() async throws {
+        let result = try await FoodQueryResolutionService.resolve(description: "Big Mac")
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: "Big Mac")
+        #expect(trace.routeState == .resolvedFood)
+        #expect(trace.complete)
+        #expect(trace.attempts.contains { $0.candidateItemID != nil && $0.outcome == "selected" })
+        #endif
+    }
+
+    @Test func resolutionDiagnosticsCaptureOrdinaryFallback() async throws {
+        let query = "homemade potato salad"
+        let result = try await FoodQueryResolutionService.resolve(description: query, estimate: { _ in
+            GeminiService.FoodAnalysis(name: "Homemade potato salad", calories: 180,
+                                       protein: 3, carbs: 24, fat: 8, servingSizeGrams: 150)
+        })
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: query)
+        #expect(trace.routeState == .ordinaryFoodFallback)
+        #expect(trace.complete)
+        #expect(trace.attempts.contains { $0.resolver == "Text nutrition fallback" && $0.outcome == "selected" })
+        #endif
+    }
+
+    @Test func resolutionDiagnosticsCaptureUnresolvedIdentity() async throws {
+        let query = "zxqv blorp"
+        let result = try await FoodQueryResolutionService.resolve(description: query, estimate: { _ in
+            GeminiService.FoodAnalysis(name: "Unrelated food", calories: 100,
+                                       protein: 1, carbs: 20, fat: 1, servingSizeGrams: 100)
+        })
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: query)
+        #expect(!trace.complete)
+        #expect(trace.attempts.contains { $0.outcome == "identityRejected" })
+        #expect(trace.components.contains { $0.state == .unresolved && $0.reason != nil })
+        #endif
+    }
+
+    @Test func resolutionDiagnosticsCaptureMixedFailure() async throws {
+        let query = "zinger burger homemade potato salad"
+        let result = try await FoodQueryResolutionService.resolve(description: query, estimate: { _ in
+            GeminiService.FoodAnalysis(name: "Garden greens", calories: 50,
+                                       protein: 2, carbs: 8, fat: 1, servingSizeGrams: 100)
+        })
+        #if DEBUG
+        let trace = result.debugDiagnostics(for: query)
+        #expect(!trace.complete)
+        #expect(trace.components.contains { $0.state == .verifiedRestaurant })
+        #expect(trace.components.contains { $0.state == .unresolved && $0.reason != nil })
+        #expect(trace.attempts.contains { $0.outcome == "identityRejected" })
+        #endif
+    }
+
+    @Test(arguments: ["KFC", "Boost", "Maccas"])
+    func brandOnlyQueryRoutesToDiscoveryWithoutCallingAI(query: String) async throws {
+        var estimated = false
+        let result = try await FoodQueryResolutionService.resolve(
+            description: query,
+            estimate: { _ in
+                estimated = true
+                return GeminiService.FoodAnalysis(name: "Guessed meal", calories: 500,
+                                                  protein: 10, carbs: 50, fat: 20, servingSizeGrams: 300)
+            })
+        #expect(result.route?.state == .brandDiscovery)
+        #expect(result.analysis == nil)
+        #expect(!estimated)
+    }
+
+    @Test(arguments: ["Big Mac", "Wondermelon"])
+    func knownMenuItemRoutesAsResolvedFood(query: String) {
+        let route = FoodIntentRouter.route(query)
+        #expect(route.state == .resolvedFood)
+        #expect(route.matchedMenuItems.count == 1)
+    }
+
+    @Test func ordinaryFoodAndLocationRemainSeparate() {
+        let salad = FoodIntentRouter.route("homemade potato salad")
+        #expect(salad.state == .ordinaryFoodFallback)
+        let roll = FoodIntentRouter.route("chicken schnitzel roll from local bakery")
+        #expect(roll.state == .ordinaryFoodFallback)
+        #expect(roll.foodIdentity == "chicken schnitzel roll")
+        #expect(roll.locationContext == "local bakery")
+        let analysis = GeminiService.FoodAnalysis(name: "Chicken schnitzel roll", calories: 550,
+                                                  protein: 25, carbs: 55, fat: 25, servingSizeGrams: 300)
+        #expect(FoodQueryResolutionService.trackEstimate(
+            analysis, query: "chicken schnitzel roll from local bakery").isComplete)
+    }
+
+    @Test func unsupportedProductNeedsPreservedIdentityAndRemainsUnverified() {
+        let matching = GeminiService.FoodAnalysis(name: "Mango Boost drink", calories: 180,
+                                                  protein: 2, carbs: 40, fat: 1, servingSizeGrams: 350)
+        let substituted = GeminiService.FoodAnalysis(name: "Mango smoothie", calories: 180,
+                                                     protein: 2, carbs: 40, fat: 1, servingSizeGrams: 350)
+        #expect(FoodIntentRouter.route("Mango boost", analysis: matching).state == .unverifiedProductEstimate)
+        #expect(FoodIntentRouter.route("Mango boost", analysis: substituted).state == .needsClarification)
+        #expect(FoodIntentRouter.route("Mango Magic", analysis: matching,
+                                       productIdentityIsKnown: true).state == .needsClarification)
+        let named = GeminiService.FoodAnalysis(name: "Mango Magic drink", calories: 180,
+                                               protein: 2, carbs: 40, fat: 1, servingSizeGrams: 350)
+        #expect(FoodIntentRouter.route("Mango Magic", analysis: named,
+                                       productIdentityIsKnown: true).state == .unverifiedProductEstimate)
+    }
+
+    @Test func unclearInputNeedsClarificationAfterFailedIdentityCheck() {
+        let unknown = GeminiService.FoodAnalysis(name: "Unknown item", calories: 0,
+                                                 protein: 0, carbs: 0, fat: 0, servingSizeGrams: 0)
+        #expect(FoodIntentRouter.route("zxqv blorp", analysis: unknown).state == .needsClarification)
+    }
+
     private func estimated(_ query: String) async throws -> GeminiService.FoodAnalysis {
         let normalized = query.lowercased()
         if normalized.contains("potato salad") {
@@ -76,6 +216,94 @@ import Testing
         #expect(resolution.analysis?.nutritionSource == "Mixed nutrition sources")
         #expect(resolution.analysis?.ingredients.count == 2)
         #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+    }
+
+    @Test func compositeFallbackUsesDishIdentityNotItsIngredientNames() async throws {
+        let resolution = try await FoodQueryResolutionService.resolve(
+            description: "zinger burger homemade potato salad",
+            estimate: { _ in
+                var analysis = GeminiService.FoodAnalysis(name: "Homemade potato salad", calories: 180,
+                                                          protein: 3, carbs: 24, fat: 8, servingSizeGrams: 150)
+                analysis.ingredients = [
+                    MealIngredient(name: "Potatoes", grams: 110, calories: 100, protein: 2, carbs: 22, fat: 0),
+                    MealIngredient(name: "Mayonnaise", grams: 40, calories: 80, protein: 1, carbs: 2, fat: 8)
+                ]
+                return analysis
+            })
+        #expect(resolution.isComplete)
+        #expect(resolution.components.count == 2)
+        #expect(resolution.components[0].state == .verifiedRestaurant)
+        #expect(resolution.components[1].name == "Homemade potato salad")
+        #expect(resolution.components[1].state == .aiEstimate)
+        #expect(resolution.analysis?.nutritionSource == "Mixed nutrition sources")
+        #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+        #if DEBUG
+        let trace = resolution.debugDiagnostics(for: "zinger burger homemade potato salad")
+        #expect(trace.complete)
+        #expect(trace.components.count == 2)
+        #expect(!trace.components[0].deterministicCandidates.isEmpty)
+        #expect(trace.components[1].selectedResolver == "aiEstimate")
+        #expect(trace.components[1].normalizedQuery == "homemade potato salad")
+        #endif
+    }
+
+    @Test func pizzaFallbackStillCombinesWithVerifiedBurger() async throws {
+        let resolution = try await FoodQueryResolutionService.resolve(
+            description: "zinger burger a slice of pizza",
+            estimate: { _ in GeminiService.FoodAnalysis(name: "A slice of pizza", calories: 285,
+                                                         protein: 12, carbs: 36, fat: 10,
+                                                         servingSizeGrams: 120) })
+        #expect(resolution.isComplete)
+        #expect(resolution.components.count == 2)
+        #expect(resolution.components[0].state == .verifiedRestaurant)
+        #expect(resolution.components[1].state == .aiEstimate)
+        #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+    }
+
+    @Test(arguments: ["zinger burger a slice of pizza", "zinger burger banana",
+                      "Big Mac and homemade coleslaw", "6 nuggets and apple"])
+    func mixedFallbackKeepsEveryFoodAndQuantity(query: String) async throws {
+        let resolution = try await FoodQueryResolutionService.resolve(
+            description: query,
+            estimate: { phrase in
+                let normalized = phrase.lowercased()
+                let name = normalized.contains("pizza") ? "A slice of pizza"
+                    : normalized.contains("banana") ? "Banana"
+                    : normalized.contains("coleslaw") ? "Homemade coleslaw" : "Apple"
+                return GeminiService.FoodAnalysis(name: name, calories: 100, protein: 1,
+                                                  carbs: 15, fat: 3, servingSizeGrams: 100)
+            })
+        #expect(resolution.isComplete)
+        #expect(resolution.components.count == 2)
+        #expect(resolution.components[0].state == .verifiedRestaurant)
+        #expect(resolution.components[1].state == .aiEstimate)
+        #expect(resolution.analysis?.calories == resolution.components.compactMap(\.calories).reduce(0, +))
+        if query.contains("nuggets") {
+            #expect(resolution.components[0].quantity == 1)
+            #expect(resolution.components[0].calories == 216)
+        }
+    }
+
+    @Test func ambiguousBrandedPhrasesRequireIdentityPreservation() async throws {
+        for (query, substitute) in [("Mango boost", "Mango smoothie"),
+                                    ("Mango magic", "Mango smoothie"),
+                                    ("Lychee crush", "Lychee soda")] {
+            let unresolved = try await FoodQueryResolutionService.resolve(
+                description: query,
+                estimate: { _ in GeminiService.FoodAnalysis(name: substitute, calories: 150,
+                                                             protein: 1, carbs: 30, fat: 1,
+                                                             servingSizeGrams: 300) })
+            #expect(!unresolved.isComplete)
+            #expect(unresolved.unresolvedComponents.count == 1)
+        }
+        let preserved = try await FoodQueryResolutionService.resolve(
+            description: "Mango magic",
+            estimate: { _ in GeminiService.FoodAnalysis(name: "Mango Magic drink", calories: 150,
+                                                         protein: 1, carbs: 30, fat: 1,
+                                                         servingSizeGrams: 300) })
+        #expect(preserved.isComplete)
+        #expect(preserved.components.first?.state == .aiEstimate)
+        #expect(preserved.components.first?.sourceItemID == nil)
     }
 
     @Test(arguments: ["zinger burger homemade potato salad", "zinger burger home made potato salad"])

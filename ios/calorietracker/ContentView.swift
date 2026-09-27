@@ -2422,6 +2422,9 @@ private var dailyStepsTaskKey: String {
                     let parent = description.components(separatedBy: "Clarification:").first ?? description
                     resolution = FoodQueryResolutionService.trackEstimate(estimate, query: parent)
                 }
+                #if DEBUG
+                FoodQueryResolutionService.emitDebugTraceIfEnabled(resolution, query: description)
+                #endif
                 if let restaurantMatch = resolution.restaurantMatch {
                     try Task.checkCancellation()
                     if !restaurantMatch.clarificationPlan.isEmpty {

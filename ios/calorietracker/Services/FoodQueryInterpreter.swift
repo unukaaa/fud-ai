@@ -20,6 +20,87 @@ struct FoodQueryIntent: Equatable, Sendable {
     var hasMultipleItems: Bool { items.count > 1 }
 }
 
+enum FoodIntentRouteState: String, Equatable, Sendable {
+    case resolvedFood
+    case brandDiscovery
+    case unverifiedProductEstimate
+    case ordinaryFoodFallback
+    case needsClarification
+}
+
+struct FoodIntentRoute: Equatable, Sendable {
+    let state: FoodIntentRouteState
+    let foodIdentity: String
+    let brandID: String?
+    let locationContext: String?
+    let matchedMenuItems: [String]
+}
+
+/// Routing evidence, not nutrition calculation. A future search surface can
+/// supply product identity evidence without teaching this layer brand names.
+enum FoodIntentRouter {
+    static func route(_ query: String, analysis: GeminiService.FoodAnalysis? = nil,
+                      productIdentityIsKnown: Bool = false,
+                      store: RestaurantDatasetStore? = nil) -> FoodIntentRoute {
+        let dataset = store ?? RestaurantDatasetStore.bundled()
+        let normalized = FoodQueryInterpreter.lexicalCleanup(query)
+        let identity = foodIdentity(in: normalized)
+        let location = identity == normalized ? nil : String(normalized.dropFirst(identity.count + " from ".count))
+        var brandID: String?
+        var brandAlias: String?
+        if let dataset {
+            for restaurant in dataset.dataset.restaurants {
+                for alias in restaurant.aliases + [restaurant.name] {
+                    let candidate = RestaurantQueryNormalizer.normalize(alias)
+                    guard !candidate.isEmpty,
+                          (" " + normalized + " ").contains(" " + candidate + " "),
+                          candidate.count > (brandAlias?.count ?? 0) else { continue }
+                    brandID = restaurant.id
+                    brandAlias = candidate
+                }
+            }
+        }
+        let intent = FoodQueryInterpreter.interpret(identity, store: dataset)
+        let items = intent.items.map(\.interpretedName)
+        let state: FoodIntentRouteState
+        if identity.isEmpty {
+            state = .needsClarification
+        } else if identity == brandAlias {
+            state = .brandDiscovery
+        } else if !items.isEmpty && intent.unresolvedTerms.isEmpty {
+            state = .resolvedFood
+        } else if let analysis {
+            let requested = identityWords(identity)
+            let estimated = Set(identityWords(analysis.name))
+            if requested.isEmpty || !requested.allSatisfy(estimated.contains) {
+                state = .needsClarification
+            } else if brandID != nil || productIdentityIsKnown {
+                state = .unverifiedProductEstimate
+            } else {
+                state = .ordinaryFoodFallback
+            }
+        } else {
+            state = .ordinaryFoodFallback
+        }
+        return FoodIntentRoute(state: state, foodIdentity: identity, brandID: brandID,
+                               locationContext: location, matchedMenuItems: items)
+    }
+
+    static func foodIdentity(in query: String) -> String {
+        let normalized = FoodQueryInterpreter.lexicalCleanup(query)
+        guard let range = normalized.range(of: " from "),
+              !normalized[range.upperBound...].contains(" and "),
+              !normalized[range.upperBound...].contains(" plus ")
+        else { return normalized }
+        return String(normalized[..<range.lowerBound])
+    }
+
+    private static func identityWords(_ value: String) -> [String] {
+        FoodQueryInterpreter.lexicalCleanup(value).split(separator: " ").map(String.init)
+            .filter { !["a", "an", "the", "of", "with", "and"].contains($0) && Int($0) == nil }
+    }
+}
+
 enum FoodResolutionState: String, Equatable, Sendable {
     case verifiedRestaurant
     case partiallyVerifiedRestaurant
@@ -49,13 +130,16 @@ struct FoodQueryResolution {
     let restaurantMatch: RestaurantMatch?
     let components: [FoodResolutionComponent]
     let candidateAnalysis: GeminiService.FoodAnalysis?
+    let route: FoodIntentRoute?
 
     init(analysis: GeminiService.FoodAnalysis?, restaurantMatch: RestaurantMatch?,
-         components: [FoodResolutionComponent], candidateAnalysis: GeminiService.FoodAnalysis? = nil) {
+         components: [FoodResolutionComponent], candidateAnalysis: GeminiService.FoodAnalysis? = nil,
+         route: FoodIntentRoute? = nil) {
         self.analysis = analysis
         self.restaurantMatch = restaurantMatch
         self.components = components
         self.candidateAnalysis = candidateAnalysis
+        self.route = route
     }
 
     var unresolvedComponents: [FoodResolutionComponent] {
@@ -63,6 +147,127 @@ struct FoodQueryResolution {
     }
 
     var isComplete: Bool { !components.isEmpty && unresolvedComponents.isEmpty }
+
+    #if DEBUG
+    var debugAttempts: [FoodResolutionDiagnostics.Attempt] = []
+
+    func debugDiagnostics(for originalQuery: String) -> FoodResolutionDiagnostics {
+        let intent = FoodQueryInterpreter.interpret(originalQuery)
+        let currentRoute = route ?? FoodIntentRouter.route(originalQuery, analysis: analysis ?? candidateAnalysis)
+        return FoodResolutionDiagnostics(
+            originalQuery: originalQuery,
+            interpretedQuery: intent.interpretedText,
+            routeState: currentRoute.state,
+            foodIdentity: currentRoute.foodIdentity,
+            brandID: currentRoute.brandID,
+            locationContext: currentRoute.locationContext,
+            detectedComponents: intent.items.map(\.interpretedName),
+            attempts: debugAttempts,
+            components: components.map { component in
+                let attempts = debugAttempts.filter { $0.query == component.query }
+                return FoodResolutionDiagnostics.Component(
+                    query: component.query,
+                    normalizedQuery: FoodQueryInterpreter.lexicalCleanup(component.query),
+                    name: component.name,
+                    quantity: component.quantity,
+                    calories: component.calories,
+                    restaurantContext: FoodQueryInterpreter.interpret(component.query).restaurantID ?? currentRoute.brandID,
+                    deterministicCandidates: attempts.compactMap(\.candidateItemID) + [component.sourceItemID].compactMap { $0 },
+                    attemptedResolvers: attempts.map(\.resolver),
+                    selectedResolver: component.state == .unresolved ? nil :
+                        (component.sourceItemID != nil ? "RestaurantNutritionProvider" : component.state.rawValue),
+                    modifiers: attempts.flatMap(\.modifiers),
+                    state: component.state,
+                    source: component.sourceDetail,
+                    confidence: component.sourceItemID != nil
+                        ? FoodQueryInterpreter.interpret(component.query).confidence : nil,
+                    reason: component.state == .unresolved
+                        ? attempts.compactMap(\.reason).last
+                            ?? (candidateAnalysis == nil ? "No usable resolver result" : "Estimated identity did not account for this food") : nil
+                )
+            },
+            complete: isComplete
+        )
+    }
+    #endif
+}
+
+#if DEBUG
+/// On-demand, in-memory developer trace. Never persisted or automatically logged.
+struct FoodResolutionDiagnostics {
+    struct Attempt {
+        let query: String
+        let resolver: String
+        let outcome: String
+        let candidateItemID: String?
+        let source: String?
+        let modifiers: [String]
+        let reason: String?
+    }
+
+    struct Component {
+        let query: String
+        let normalizedQuery: String
+        let name: String
+        let quantity: Double
+        let calories: Int?
+        let restaurantContext: String?
+        let deterministicCandidates: [String]
+        let attemptedResolvers: [String]
+        let selectedResolver: String?
+        let modifiers: [String]
+        let state: FoodResolutionState
+        let source: String?
+        let confidence: Double?
+        let reason: String?
+    }
+
+    let originalQuery: String
+    let interpretedQuery: String
+    let routeState: FoodIntentRouteState
+    let foodIdentity: String
+    let brandID: String?
+    let locationContext: String?
+    let detectedComponents: [String]
+    let attempts: [Attempt]
+    let components: [Component]
+    let complete: Bool
+
+    var text: String {
+        var lines = ["Food resolution: \(originalQuery)",
+                     "Interpreted: \(interpretedQuery)",
+                     "Route: \(routeState.rawValue) | food: \(foodIdentity) | brand: \(brandID ?? "none") | context: \(locationContext ?? "none")",
+                     "Detected: \(detectedComponents.joined(separator: ", "))"]
+        for attempt in attempts {
+            lines.append("Attempt \(attempt.query): \(attempt.resolver) → \(attempt.outcome)" +
+                         (attempt.candidateItemID.map { " [\($0)]" } ?? "") +
+                         (attempt.reason.map { " (\($0))" } ?? ""))
+        }
+        for component in components {
+            lines.append("Component \(component.query): \(component.name), qty \(component.quantity), calories \(component.calories.map(String.init) ?? "unknown"), \(component.state.rawValue), resolver \(component.selectedResolver ?? "none"), source \(component.source ?? "none")" +
+                         (component.reason.map { ", reason \($0)" } ?? ""))
+        }
+        lines.append("Completeness: \(components.filter { $0.state != .unresolved }.count)/\(components.count) terminal — \(complete ? "PASS" : "FAIL")")
+        return lines.joined(separator: "\n")
+    }
+}
+#endif
+
+/// Compiles to a no-op outside DEBUG; no trace is persisted or uploaded.
+private final class FoodResolutionTraceRecorder {
+    #if DEBUG
+    var attempts: [FoodResolutionDiagnostics.Attempt] = []
+    #endif
+
+    func record(_ query: String, resolver: String, outcome: String,
+                candidateItemID: String? = nil, source: String? = nil,
+                modifiers: [String] = [], reason: String? = nil) {
+        #if DEBUG
+        attempts.append(.init(query: query, resolver: resolver, outcome: outcome,
+                              candidateItemID: candidateItemID, source: source,
+                              modifiers: modifiers, reason: reason))
+        #endif
+    }
 }
 
 struct IncompleteFoodQueryError: LocalizedError {
@@ -332,10 +537,49 @@ enum FoodQueryResolutionService {
     typealias RestaurantResolver = (String) async -> RestaurantMatch?
     typealias Estimator = (String) async throws -> GeminiService.FoodAnalysis
 
+    #if DEBUG
+    /// Opt-in only: set FOOD_AI_RESOLUTION_TRACE=1 in the Xcode Run scheme.
+    static func emitDebugTraceIfEnabled(_ resolution: FoodQueryResolution, query: String) {
+        guard ProcessInfo.processInfo.environment["FOOD_AI_RESOLUTION_TRACE"] == "1" else { return }
+        print(resolution.debugDiagnostics(for: query).text)
+    }
+    #endif
+
     static func resolve(
         description: String,
         restaurantResolver: @escaping RestaurantResolver = { await RestaurantNutritionAnalysisService.match(description: $0) },
         estimate: @escaping Estimator = { try await GeminiService.analyzeTextInput(description: $0) }
+    ) async throws -> FoodQueryResolution {
+        let parent = description.components(separatedBy: "Clarification:").first ?? description
+        let initialRoute = FoodIntentRouter.route(parent)
+        let trace = FoodResolutionTraceRecorder()
+        if initialRoute.state == .brandDiscovery {
+            trace.record(parent, resolver: "FoodIntentRouter", outcome: "brandDiscovery",
+                         reason: "Brand-only intent; no nutrition resolver attempted")
+            var result = FoodQueryResolution(analysis: nil, restaurantMatch: nil,
+                                             components: [unresolved(parent)], route: initialRoute)
+            #if DEBUG
+            result.debugAttempts = trace.attempts
+            #endif
+            return result
+        }
+        let result = try await resolveFood(description: description,
+                                           restaurantResolver: restaurantResolver, estimate: estimate, trace: trace)
+        let route = FoodIntentRouter.route(parent, analysis: result.analysis ?? result.candidateAnalysis)
+        var routed = FoodQueryResolution(analysis: result.analysis, restaurantMatch: result.restaurantMatch,
+                                         components: result.components, candidateAnalysis: result.candidateAnalysis,
+                                         route: route)
+        #if DEBUG
+        routed.debugAttempts = trace.attempts
+        #endif
+        return routed
+    }
+
+    private static func resolveFood(
+        description: String,
+        restaurantResolver: @escaping RestaurantResolver,
+        estimate: @escaping Estimator,
+        trace: FoodResolutionTraceRecorder
     ) async throws -> FoodQueryResolution {
         let parent = description.components(separatedBy: "Clarification:").first ?? description
         let intent = FoodQueryInterpreter.interpret(parent)
@@ -348,7 +592,13 @@ enum FoodQueryResolutionService {
             && (intent.items.count > 1 || (!intent.items.isEmpty && hasResidualFood))
 
         if !needsComponents {
-            if let match = await restaurantResolver(description) {
+            let directMatch = await restaurantResolver(description)
+            trace.record(parent, resolver: "RestaurantNutritionProvider",
+                         outcome: directMatch == nil ? "noMatch" : "selected",
+                         candidateItemID: directMatch?.menuItem.id,
+                         source: directMatch?.foodAnalysis?.nutritionSourceDetail,
+                         modifiers: directMatch?.matchedModifiers.map(\.name) ?? [])
+            if let match = directMatch {
                 let analysis = match.foodAnalysis
                 let component = restaurantComponent(query: parent, match: match, analysis: analysis)
                 let coveredParentTerms = Set(meaningfulTokens(
@@ -362,7 +612,7 @@ enum FoodQueryResolutionService {
                 if isConfiguredParent && !uncoveredFoods.isEmpty {
                     if let split = try await resolveConfiguredParentAndExtra(
                         parent, residualFoods: uncoveredFoods,
-                        restaurantResolver: restaurantResolver, estimate: estimate
+                        restaurantResolver: restaurantResolver, estimate: estimate, trace: trace
                     ) { return split }
                     return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
                                                components: [component] + uncoveredFoods.map(unresolved))
@@ -374,13 +624,17 @@ enum FoodQueryResolutionService {
             if isConfiguredParent && hasResidualFood {
                 if let split = try await resolveConfiguredParentAndExtra(
                     parent, residualFoods: residualFoods,
-                    restaurantResolver: restaurantResolver, estimate: estimate
+                    restaurantResolver: restaurantResolver, estimate: estimate, trace: trace
                 ) { return split }
                 return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
                                            components: [unresolved(parent)])
             }
             let analysis = try await estimate(description)
-            return trackEstimate(analysis, query: parent)
+            let tracked = trackEstimate(analysis, query: parent)
+            trace.record(parent, resolver: "Text nutrition fallback", outcome: tracked.isComplete ? "selected" : "identityRejected",
+                         source: analysis.nutritionSource,
+                         reason: tracked.isComplete ? nil : "Estimated identity did not account for this food")
+            return tracked
         }
 
         let segments = split(parent, intent: intent)
@@ -397,6 +651,11 @@ enum FoodQueryResolutionService {
                 } else {
                     restaurantMatch = nil
                 }
+                trace.record(segment.query, resolver: "RestaurantNutritionProvider",
+                             outcome: restaurantMatch == nil ? "noMatch" : "selected",
+                             candidateItemID: restaurantMatch?.menuItem.id,
+                             source: restaurantMatch?.foodAnalysis?.nutritionSourceDetail,
+                             modifiers: restaurantMatch?.matchedModifiers.map(\.name) ?? [])
             } else {
                 restaurantMatch = nil
             }
@@ -410,7 +669,11 @@ enum FoodQueryResolutionService {
             do {
                 let estimateQuery = segment.canonicalQuery ?? segment.query
                 let estimated = try await estimate(estimateQuery)
-                let tracked = trackEstimate(estimated, query: estimateQuery)
+                let tracked = trackEstimate(estimated, query: estimateQuery, singleFoodIntent: true)
+                trace.record(segment.query, resolver: "Text nutrition fallback",
+                             outcome: tracked.isComplete ? "selected" : "identityRejected",
+                             source: estimated.nutritionSource,
+                             reason: tracked.isComplete ? nil : "Estimated identity did not account for this food")
                 records.append(contentsOf: tracked.components)
                 if tracked.isComplete, let analysis = tracked.analysis { analyses.append(analysis) }
             } catch is CancellationError {
@@ -418,6 +681,8 @@ enum FoodQueryResolutionService {
             } catch let quota as HostedAIQuotaError {
                 throw quota
             } catch {
+                trace.record(segment.query, resolver: "Text nutrition fallback", outcome: "failed",
+                             reason: "Resolver threw \(type(of: error))")
                 records.append(unresolved(segment.query))
             }
         }
@@ -441,7 +706,8 @@ enum FoodQueryResolutionService {
         _ description: String,
         residualFoods: [String],
         restaurantResolver: @escaping RestaurantResolver,
-        estimate: @escaping Estimator
+        estimate: @escaping Estimator,
+        trace: FoodResolutionTraceRecorder
     ) async throws -> FoodQueryResolution? {
         let words = FoodQueryInterpreter.lexicalCleanup(description).split(separator: " ").map(String.init)
         guard words.count > 2 else { return nil }
@@ -453,14 +719,23 @@ enum FoodQueryResolutionService {
             while let first = suffix.first, ["and", "with", "plus"].contains(first) { suffix.removeFirst() }
             guard !prefix.isEmpty, !suffix.isEmpty, suffix.contains(where: extras.contains) else { continue }
             let parentQuery = prefix.joined(separator: " ")
-            guard let match = await restaurantResolver(parentQuery),
+            let candidate = await restaurantResolver(parentQuery)
+            trace.record(parentQuery, resolver: "RestaurantNutritionProvider",
+                         outcome: candidate == nil ? "noMatch" : "candidate",
+                         candidateItemID: candidate?.menuItem.id,
+                         source: candidate?.foodAnalysis?.nutritionSourceDetail)
+            guard let match = candidate,
                   match.clarificationPlan.isEmpty,
                   let parentAnalysis = match.foodAnalysis else { continue }
             let parentComponent = restaurantComponent(query: parentQuery, match: match, analysis: parentAnalysis)
             let extraQuery = suffix.joined(separator: " ")
             do {
                 let extraAnalysis = try await estimate(extraQuery)
-                let tracked = trackEstimate(extraAnalysis, query: extraQuery)
+                let tracked = trackEstimate(extraAnalysis, query: extraQuery, singleFoodIntent: true)
+                trace.record(extraQuery, resolver: "Text nutrition fallback",
+                             outcome: tracked.isComplete ? "selected" : "identityRejected",
+                             source: extraAnalysis.nutritionSource,
+                             reason: tracked.isComplete ? nil : "Estimated identity did not account for this food")
                 let records = [parentComponent] + tracked.components
                 guard tracked.isComplete, let resolvedExtra = tracked.analysis else {
                     return FoodQueryResolution(analysis: nil, restaurantMatch: nil, components: records)
@@ -474,6 +749,8 @@ enum FoodQueryResolutionService {
             } catch let quota as HostedAIQuotaError {
                 throw quota
             } catch {
+                trace.record(extraQuery, resolver: "Text nutrition fallback", outcome: "failed",
+                             reason: "Resolver threw \(type(of: error))")
                 return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
                                            components: [parentComponent, unresolved(extraQuery)])
             }
@@ -536,12 +813,18 @@ enum FoodQueryResolutionService {
         )
     }
 
-    static func trackEstimate(_ analysis: GeminiService.FoodAnalysis, query: String) -> FoodQueryResolution {
-        let names = analysis.ingredients.isEmpty ? [analysis.name] : analysis.ingredients.map(\.name)
+    static func trackEstimate(_ analysis: GeminiService.FoodAnalysis, query: String,
+                              singleFoodIntent: Bool = false) -> FoodQueryResolution {
+        // A single queried dish can still contain ingredients resolved from
+        // different sources. Keep those source boundaries, while retaining one
+        // dish component for homogeneous ingredient breakdowns.
+        let ingredientSources = Set(analysis.ingredients.map { $0.nutritionSource ?? "AI estimate" })
+        let preserveIngredients = !analysis.ingredients.isEmpty && (!singleFoodIntent || ingredientSources.count > 1)
+        let names = preserveIngredients ? analysis.ingredients.map(\.name) : [analysis.name]
         let covered = Set(names.flatMap { meaningfulTokens($0) })
-        let missing = meaningfulTokens(query).filter { !covered.contains($0) }
+        let missing = meaningfulTokens(FoodIntentRouter.foodIdentity(in: query)).filter { !covered.contains($0) }
         var records: [FoodResolutionComponent] = []
-        if analysis.ingredients.isEmpty {
+        if !preserveIngredients {
             records.append(estimateComponent(query: query, analysis: analysis))
         } else {
             for ingredient in analysis.ingredients {
