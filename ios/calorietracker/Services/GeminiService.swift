@@ -50,6 +50,9 @@ struct GeminiService {
         var nutritionSource = "AI estimate"
         var nutritionSourceDetail: String? = nil
         var nutritionConfidence = "Low"
+        /// Set by a separate text-identity check, never inferred from the
+        /// nutrition estimate's name or calorie values.
+        var foodIdentityConfirmed: Bool? = nil
         var proteinIsKnown = true
         var carbsAreKnown = true
         var fatIsKnown = true
@@ -344,9 +347,35 @@ struct GeminiService {
         return try await runWithHostedQuota(.textFood, skip: skipHostedMetering) {
             let analysis = try await callTextFoodAnalysis(prompt: prompt, description: interpretedDescription)
             let result = await addingFallbackServingUnits(to: analysis, image: nil, description: interpretedDescription)
-            let australian = AustralianNutritionService.applyingBestAustralianMatch(to: result)
+            var australian = AustralianNutritionService.applyingBestAustralianMatch(to: result)
+            if australian.nutritionSource == "AI estimate" {
+                australian.foodIdentityConfirmed = try await confirmFoodIdentity(in: description)
+            }
             return FoodQueryInterpreter.applyingPlausibilityGuard(to: australian, intent: intent)
         }
+    }
+
+    private static func confirmFoodIdentity(in query: String) async throws -> Bool {
+        let prompt = """
+        Decide whether the user's exact words identify an edible food, drink, or a meal containing them.
+        Query: \(query)
+        Return true for ordinary dishes even when their nutrition is unknown. Return false for
+        non-food objects, nonsense, or a phrase that only becomes food through imaginative
+        reinterpretation. Do not turn an unknown object into a novelty candy, drink, or brand.
+        Judge identity only; do not estimate nutrition. Respond ONLY with JSON:
+        {"is_food":true}
+        """
+        let response = try await callAI(prompt: prompt, images: [])
+        return try parseFoodIdentityEvidence(from: response)
+    }
+
+    static func parseFoodIdentityEvidence(from response: String) throws -> Bool {
+        let jsonString = extractJSON(from: response)
+        guard let data = jsonString.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let isFood = json["is_food"] as? Bool
+        else { throw AnalysisError.invalidResponse }
+        return isFood
     }
 
     static func autoAnalyze(image: UIImage) async throws -> FoodAnalysis {

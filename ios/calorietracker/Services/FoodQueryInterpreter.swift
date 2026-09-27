@@ -69,6 +69,8 @@ enum FoodIntentRouter {
             state = .brandDiscovery
         } else if !items.isEmpty && intent.unresolvedTerms.isEmpty {
             state = .resolvedFood
+        } else if let analysis, analysis.foodIdentityConfirmed == false {
+            state = .needsClarification
         } else if let analysis {
             let requested = identityWords(identity)
             let estimated = Set(identityWords(analysis.name))
@@ -484,6 +486,9 @@ enum FoodQueryInterpreter {
         let ranked = unambiguous.sorted {
             if $0.score != $1.score { return $0.score > $1.score }
             if $0.range.count != $1.range.count { return $0.range.count > $1.range.count }
+            let firstContainsName = containsCompleteItemName($0, in: words)
+            let secondContainsName = containsCompleteItemName($1, in: words)
+            if firstContainsName != secondContainsName { return firstContainsName }
             if $0.range.lowerBound != $1.range.lowerBound { return $0.range.lowerBound < $1.range.lowerBound }
             return $0.candidate.name < $1.candidate.name
         }
@@ -497,6 +502,12 @@ enum FoodQueryInterpreter {
             occupied.formUnion(match.range)
         }
         return selected
+    }
+
+    private static func containsCompleteItemName(_ match: Match, in words: [String]) -> Bool {
+        let name = RestaurantQueryNormalizer.normalize(match.candidate.name)
+        let span = words[match.range].joined(separator: " ")
+        return !name.isEmpty && (" " + span + " ").contains(" " + name + " ")
     }
 
     private static func threshold(for phrase: String, tokenCount: Int) -> Double {
@@ -820,9 +831,9 @@ enum FoodQueryResolutionService {
         // dish component for homogeneous ingredient breakdowns.
         let ingredientSources = Set(analysis.ingredients.map { $0.nutritionSource ?? "AI estimate" })
         let preserveIngredients = !analysis.ingredients.isEmpty && (!singleFoodIntent || ingredientSources.count > 1)
-        let names = preserveIngredients ? analysis.ingredients.map(\.name) : [analysis.name]
-        let covered = Set(names.flatMap { meaningfulTokens($0) })
-        let missing = meaningfulTokens(FoodIntentRouter.foodIdentity(in: query)).filter { !covered.contains($0) }
+        let missing = analysis.foodIdentityConfirmed == false ? [query]
+            : missingFoodIdentity(in: query, analysis: analysis,
+                                  preserveIngredients: preserveIngredients)
         var records: [FoodResolutionComponent] = []
         if !preserveIngredients {
             records.append(estimateComponent(query: query, analysis: analysis))
@@ -873,8 +884,79 @@ enum FoodQueryResolutionService {
         let ignored: Set<String> = ["a", "an", "and", "with", "of", "the", "on", "in", "for", "had", "i", "homemade", "bit", "little", "small", "medium", "large", "regular", "only", "plus"]
         return FoodQueryInterpreter.lexicalCleanup(value).split(separator: " ").map(String.init)
             .filter { Int($0) == nil && !ignored.contains($0) }
-            .map { $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0 }
+            .map {
+                if $0.hasSuffix("oes"), $0.count > 4 { return String($0.dropLast(2)) }
+                return $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0
+            }
             .map { $0 == "coke" ? "cola" : $0 }
+    }
+
+    private static func missingFoodIdentity(
+        in query: String, analysis: GeminiService.FoodAnalysis, preserveIngredients: Bool
+    ) -> [String] {
+        let identity = FoodIntentRouter.foodIdentity(in: query)
+        let context: Set<String> = [
+            "plate", "bowl", "cup", "piece", "serving", "that", "it",
+            "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+            "eleven", "twelve"
+        ]
+        func foodTokens(_ text: String) -> [String] {
+            meaningfulTokens(text).filter { !context.contains($0) }
+        }
+        let requested = foodTokens(identity)
+        let ingredientTokens = Set(analysis.ingredients.flatMap { foodTokens($0.name) })
+        let parentTokens = Set(foodTokens(analysis.name))
+        if !preserveIngredients {
+            return requested.filter { !parentTokens.contains($0) }
+        }
+
+        let missingFromIngredients = requested.filter { !ingredientTokens.contains($0) }
+        guard !missingFromIngredients.isEmpty else { return [] }
+
+        // A dish title can explain its form (or an introductory collective
+        // description), but cannot stand in for an omitted listed food.
+        let rawIdentity: String
+        if identity != FoodQueryInterpreter.lexicalCleanup(query),
+           let location = query.range(of: " from ", options: .caseInsensitive) {
+            rawIdentity = String(query[..<location.lowerBound])
+        } else {
+            rawIdentity = query
+        }
+        let commaClauses = rawIdentity.split(separator: ",").map(String.init)
+        if commaClauses.count > 1 {
+            let listed = commaClauses.dropFirst().flatMap(foodTokens)
+            let omitted = listed.filter { !ingredientTokens.contains($0) }
+            let first = commaClauses[0]
+            let isServingIntroduction = !Set(meaningfulTokens(first)).isDisjoint(
+                with: ["plate", "bowl", "cup", "serving"])
+            let introductionMissing = foodTokens(first).filter {
+                !ingredientTokens.contains($0) && !(isServingIntroduction && parentTokens.contains($0))
+            }
+            return introductionMissing + omitted
+        }
+
+        let clauses = rawIdentity.replacingOccurrences(
+            of: #"\b(and|with|plus)\b"#, with: ",", options: .regularExpression
+        ).split(separator: ",").map(String.init)
+        let everyClauseHasIngredient = clauses.allSatisfy { clause in
+            !Set(foodTokens(clause)).isDisjoint(with: ingredientTokens)
+        }
+        let isSingleDish = clauses.count == 1 && requested.count <= 2
+            && !Set(requested).isDisjoint(with: ingredientTokens)
+        // A longer, unpunctuated dish may end in its prepared form rather than
+        // another ingredient. Require every preceding requested identity in the
+        // breakdown, plus a separately named ingredient supporting a composed
+        // dish. The parent title alone never supplies that evidence.
+        let missingForm = requested.last
+        let hasComposedDishEvidence = clauses.count == 1
+            && missingFromIngredients.count == 1
+            && missingFromIngredients.first == missingForm
+            && requested.dropLast().allSatisfy(ingredientTokens.contains)
+            && !ingredientTokens.subtracting(Set(requested)).isEmpty
+        guard everyClauseHasIngredient && (clauses.count > 1 || isSingleDish || hasComposedDishEvidence) else {
+            return missingFromIngredients
+        }
+        return missingFromIngredients.filter { !parentTokens.contains($0) }
     }
 
     private static func aggregate(
