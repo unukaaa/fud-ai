@@ -443,6 +443,7 @@ struct FoodResultView: View {
                 .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .accessibilityIdentifier("reviewFood.summary.\(label.lowercased())")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(9)
@@ -503,6 +504,7 @@ struct FoodResultView: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Text(name)
                                     .font(.system(.title2, design: .rounded, weight: .bold))
+                                    .accessibilityIdentifier("reviewFood.name")
                                 Spacer()
                                 Text(sourceBadge)
                                     .font(.caption.weight(.semibold))
@@ -533,6 +535,7 @@ struct FoodResultView: View {
                                 .foregroundStyle(isFullyVerifiedSource ? Color.green : AppColors.calorie)
                             Text(nutritionSource)
                                 .font(.system(.body, design: .rounded, weight: .semibold))
+                                .accessibilityIdentifier("reviewFood.source")
                             Spacer()
                         }
                         if let nutritionSourceDetail, !nutritionSourceDetail.isEmpty {

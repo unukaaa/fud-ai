@@ -926,6 +926,7 @@ struct HomeView: View {
     private enum RetryRequest {
         case analysis(images: [UIImage], mode: CameraMode, description: String?, progressiveMeal: Bool)
         case text(String)
+        case restaurantSelection(RestaurantFoodSelection, String, String?)
         case barcode(String)
     }
     @State private var retryRequest: RetryRequest?
@@ -1562,6 +1563,16 @@ private var dailyStepsTaskKey: String {
                                     afterLoggingPresentationDismisses {
                                         startTextAnalysis(description)
                                     }
+                                },
+                                onSelectRestaurant: { selection, title in
+                                    showTextPopover = false
+                                    currentImage = nil
+                                    currentImages = []
+                                    currentEmoji = nil
+                                    currentFoodSource = .textInput
+                                    afterLoggingPresentationDismisses {
+                                        startRestaurantSelection(selection, title: title)
+                                    }
                                 }
                             )
                             .presentationCompactAdaptation(.popover)
@@ -1827,7 +1838,11 @@ private var dailyStepsTaskKey: String {
                     }
                 }) { answer in
                     clarificationPrompt = nil
-                    startTextAnalysis(prompt.originalText + "\nClarification: " + answer, allowClarification: false)
+                    if let selection = prompt.restaurantSelection {
+                        startRestaurantSelection(selection, title: prompt.originalText, clarificationAnswer: answer)
+                    } else {
+                        startTextAnalysis(prompt.originalText + "\nClarification: " + answer, allowClarification: false)
+                    }
                 }
             }
             .sheet(item: $savedMealsMode, content: { mode in
@@ -2479,6 +2494,43 @@ private var dailyStepsTaskKey: String {
         }
     }
 
+    private func startRestaurantSelection(
+        _ selection: RestaurantFoodSelection,
+        title: String,
+        clarificationAnswer: String? = nil
+    ) {
+        retryRequest = .restaurantSelection(selection, title, clarificationAnswer)
+        presentFoodLogLoading(.analyzingText)
+        analysisTask?.cancel()
+        analysisTask = Task {
+            let resolution = await FoodQueryResolutionService.resolve(
+                selection: selection, clarificationAnswer: clarificationAnswer
+            )
+            guard !Task.isCancelled else { return }
+            guard let match = resolution.restaurantMatch else {
+                presentAnalysisError(IncompleteFoodQueryError(foods: resolution.unresolvedComponents.map(\.name)))
+                return
+            }
+            if !match.clarificationPlan.isEmpty {
+                currentEmoji = match.foodAnalysis?.emoji
+                retryRequest = nil
+                activeSheet = nil
+                foodLogPhase = .result
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                    clarificationPrompt = SmartClarificationPrompt(
+                        originalText: title, restaurantMatch: match, restaurantSelection: selection
+                    )
+                }
+            } else if let result = resolution.analysis {
+                currentEmoji = result.emoji
+                retryRequest = nil
+                presentFoodResult(result)
+            } else {
+                presentAnalysisError(IncompleteFoodQueryError(foods: resolution.unresolvedComponents.map(\.name)))
+            }
+        }
+    }
+
     private func shouldClarify(description: String) -> Bool {
         let text = description.lowercased()
         let normalized = text.replacingOccurrences(of: "[^a-z0-9 ]", with: "", options: .regularExpression)
@@ -2577,6 +2629,8 @@ private var dailyStepsTaskKey: String {
             )
         case let .text(description):
             startTextAnalysis(description)
+        case let .restaurantSelection(selection, title, answer):
+            startRestaurantSelection(selection, title: title, clarificationAnswer: answer)
         case let .barcode(barcode):
             startBarcodeLookup(barcode)
         }
@@ -2589,17 +2643,21 @@ private struct SmartClarificationPrompt: Identifiable {
     let originalText: String
     let estimate: GeminiService.FoodAnalysis?
     let restaurantMatch: RestaurantMatch?
+    let restaurantSelection: RestaurantFoodSelection?
 
     init(originalText: String, estimate: GeminiService.FoodAnalysis) {
         self.originalText = originalText
         self.estimate = estimate
         restaurantMatch = nil
+        restaurantSelection = nil
     }
 
-    init(originalText: String, restaurantMatch: RestaurantMatch) {
+    init(originalText: String, restaurantMatch: RestaurantMatch,
+         restaurantSelection: RestaurantFoodSelection? = nil) {
         self.originalText = originalText
         estimate = restaurantMatch.foodAnalysis
         self.restaurantMatch = restaurantMatch
+        self.restaurantSelection = restaurantSelection
     }
 
     struct Group: Identifiable {
@@ -2663,7 +2721,7 @@ private struct SmartClarificationView: View {
                     ForEach(prompt.groups) { group in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(group.title).font(.headline)
-                            ForEach(group.options, id: \.self) { option in
+                            ForEach(Array(group.options.enumerated()), id: \.offset) { index, option in
                                 Button {
                                     selections[group.id] = option
                                 } label: {
@@ -2675,6 +2733,7 @@ private struct SmartClarificationView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .tint(selections[group.id] == option ? AppColors.calorie : .secondary)
+                                .accessibilityIdentifier("quickCheck.option.\(group.id).\(index)")
                             }
                         }
                     }
@@ -2691,6 +2750,7 @@ private struct SmartClarificationView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(selections.count < prompt.groups.count)
+                    .accessibilityIdentifier("quickCheck.continue")
                     Button("Use best estimate") {
                         onSkip()
                     }
@@ -2839,6 +2899,7 @@ private struct AddMealSheet: View {
                         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("addMeal.\(method.rawValue)")
                 }
 
                 Text("Quick Add")

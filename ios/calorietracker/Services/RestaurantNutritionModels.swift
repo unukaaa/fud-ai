@@ -143,6 +143,13 @@ struct RestaurantFoodQuery: Equatable, Sendable {
     let modifierTerms: [String]
 }
 
+/// A search selection is an identity, not a nutrition result or a query string.
+struct RestaurantFoodSelection: Equatable, Sendable {
+    let restaurantID: String
+    let itemID: String
+    let variantID: String?
+}
+
 enum RestaurantClarificationReason: String, Codable, Equatable, Sendable {
     case itemIdentity
     case mealCompleteness

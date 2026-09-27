@@ -44,6 +44,7 @@ struct ServingUnitEditor: View {
                 showsCalculatorToolbar: true
             )
             .frame(width: 104)
+            .accessibilityIdentifier("serving.quantity")
             .onChange(of: quantityText) { _, newValue in
                 guard let parsed = ServingAmountExpression.evaluate(newValue), parsed > 0 else { return }
                 servingSizeGrams = parsed * selectedOption.gramsPerUnit

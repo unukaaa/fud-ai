@@ -133,15 +133,17 @@ struct FoodQueryResolution {
     let components: [FoodResolutionComponent]
     let candidateAnalysis: GeminiService.FoodAnalysis?
     let route: FoodIntentRoute?
+    let restaurantSelection: RestaurantFoodSelection?
 
     init(analysis: GeminiService.FoodAnalysis?, restaurantMatch: RestaurantMatch?,
          components: [FoodResolutionComponent], candidateAnalysis: GeminiService.FoodAnalysis? = nil,
-         route: FoodIntentRoute? = nil) {
+         route: FoodIntentRoute? = nil, restaurantSelection: RestaurantFoodSelection? = nil) {
         self.analysis = analysis
         self.restaurantMatch = restaurantMatch
         self.components = components
         self.candidateAnalysis = candidateAnalysis
         self.route = route
+        self.restaurantSelection = restaurantSelection
     }
 
     var unresolvedComponents: [FoodResolutionComponent] {
@@ -547,6 +549,38 @@ enum FoodQueryInterpreter {
 enum FoodQueryResolutionService {
     typealias RestaurantResolver = (String) async -> RestaurantMatch?
     typealias Estimator = (String) async throws -> GeminiService.FoodAnalysis
+
+    /// A search selection never falls back to text matching or AI if its IDs
+    /// are stale. Keep the same selection for a clarification continuation.
+    static func resolve(
+        selection: RestaurantFoodSelection,
+        clarificationAnswer: String? = nil,
+        store: RestaurantDatasetStore? = nil
+    ) async -> FoodQueryResolution {
+        guard let match = await RestaurantNutritionAnalysisService.match(
+            selection: selection, clarificationAnswer: clarificationAnswer, store: store
+        ) else {
+            let missing = unresolved(selection.itemID)
+            return FoodQueryResolution(
+                analysis: nil, restaurantMatch: nil, components: [missing],
+                route: FoodIntentRoute(state: .needsClarification, foodIdentity: selection.itemID,
+                                       brandID: selection.restaurantID, locationContext: nil,
+                                       matchedMenuItems: []),
+                restaurantSelection: selection
+            )
+        }
+        let analysis = match.foodAnalysis
+        let component = restaurantComponent(query: match.menuItem.name, match: match, analysis: analysis)
+        var tracked = analysis
+        tracked?.foodResolutionComponents = [component]
+        return FoodQueryResolution(
+            analysis: tracked, restaurantMatch: match, components: [component],
+            route: FoodIntentRoute(state: .resolvedFood, foodIdentity: match.menuItem.name,
+                                   brandID: match.restaurant.id, locationContext: nil,
+                                   matchedMenuItems: [match.menuItem.name]),
+            restaurantSelection: selection
+        )
+    }
 
     #if DEBUG
     /// Opt-in only: set FOOD_AI_RESOLUTION_TRACE=1 in the Xcode Run scheme.

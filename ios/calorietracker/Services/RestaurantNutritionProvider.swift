@@ -103,6 +103,10 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
     }
 
     func match(_ query: RestaurantFoodQuery) async -> RestaurantMatch? {
+        await match(query, selection: nil)
+    }
+
+    func match(_ query: RestaurantFoodQuery, selection: RestaurantFoodSelection?) async -> RestaurantMatch? {
         let normalized = RestaurantQueryNormalizer.normalize(query.rawText)
         let parentText = query.rawText.components(separatedBy: "Clarification:").first ?? query.rawText
         let normalizedParent = RestaurantQueryNormalizer.normalize(parentText)
@@ -110,16 +114,34 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
             .components(separatedBy: " with ").first?
             .components(separatedBy: " and ").first
             ?? parentText
-        let restaurant = query.restaurantID.flatMap { id in
-            store.dataset.restaurants.first { $0.id == id }
-        } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
-            ?? matcher.uniqueRestaurantForItem(in: query.rawText, dataset: store.dataset)
+        let restaurant: Restaurant?
+        if let selection {
+            restaurant = store.dataset.restaurants.first { $0.id == selection.restaurantID }
+        } else {
+            restaurant = query.restaurantID.flatMap { id in
+                store.dataset.restaurants.first { $0.id == id }
+            } ?? matcher.restaurant(in: query.rawText, dataset: store.dataset)
+                ?? matcher.uniqueRestaurantForItem(in: query.rawText, dataset: store.dataset)
+        }
 
         guard let restaurant else { return nil }
         let restaurantItems = store.dataset.menuItems.filter { item in
             item.provenance?.restaurantID == nil || item.provenance?.restaurantID == restaurant.id
         }
-        guard let initiallyMatchedItem = matcher.item(in: primaryClause, items: restaurantItems) else { return nil }
+        let initiallyMatchedItem: RestaurantMenuItem?
+        if let selection {
+            initiallyMatchedItem = restaurantItems.first {
+                $0.id == selection.itemID && $0.provenance?.restaurantID == restaurant.id
+            }
+            guard let initiallyMatchedItem else { return nil }
+            if let variantID = selection.variantID,
+               !initiallyMatchedItem.variants.contains(where: { $0.id == variantID }) {
+                return nil
+            }
+        } else {
+            initiallyMatchedItem = matcher.item(in: primaryClause, items: restaurantItems)
+        }
+        guard let initiallyMatchedItem else { return nil }
         let initialGroups = initiallyMatchedItem.mealConfigurations.first?.clarificationGroups ?? []
         let initialSelections = resolvedComponentSelections(in: query.rawText, groups: initialGroups)
         let selectedItemID = initialSelections
@@ -128,7 +150,13 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
         let item = selectedItemID.flatMap { targetID in restaurantItems.first { $0.id == targetID } }
             ?? initiallyMatchedItem
 
-        let selectedVariant = selectedVariant(in: query.rawText, for: item)
+        let selectedVariant: RestaurantMenuItemVariant?
+        if let variantID = selection?.variantID {
+            guard let exactVariant = item.variants.first(where: { $0.id == variantID }) else { return nil }
+            selectedVariant = exactVariant
+        } else {
+            selectedVariant = self.selectedVariant(in: query.rawText, for: item)
+        }
 
         let quantitySelectsVariant = query.quantity.map { quantity in
             guard let selectedVariant else { return false }
@@ -373,6 +401,20 @@ struct LocalRestaurantNutritionProvider: RestaurantNutritionProvider, Sendable {
 }
 
 enum RestaurantNutritionAnalysisService {
+    static func match(
+        selection: RestaurantFoodSelection,
+        clarificationAnswer: String? = nil,
+        store: RestaurantDatasetStore? = nil
+    ) async -> RestaurantMatch? {
+        guard let store = store ?? RestaurantDatasetStore.bundled() else { return nil }
+        let query = RestaurantFoodQuery(
+            rawText: clarificationAnswer.map { "Clarification: \($0)" } ?? "",
+            restaurantID: selection.restaurantID,
+            itemTerms: [], quantity: nil, modifierTerms: []
+        )
+        return await LocalRestaurantNutritionProvider(store: store).match(query, selection: selection)
+    }
+
     static func match(description: String) async -> RestaurantMatch? {
         await match(description: description, store: RestaurantDatasetStore.bundled())
     }

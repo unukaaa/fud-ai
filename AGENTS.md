@@ -42,6 +42,17 @@ Conserve agent usage. Default workflow: read this file → inspect relevant code
 
 Prefer minimal safe Swift concurrency changes. Do not introduce broad `@MainActor` annotations or refactors just to silence warnings; handle known warning debt separately.
 
+### Development and acceptance workflow
+
+Codex owns implementation. Keep each task scoped: inspect → identify the root cause or design → make the smallest appropriate change → validate what changed → report → stop. Do not invoke every design or QA tool mechanically.
+
+- For logic, data, resolver, or dataset-only work, normally skip design tools. For meaningful UI/UX work, use UI Skills for hierarchy, information architecture, interaction, spacing, accessibility, and consistency; use SwiftUI Designer to translate that direction into native SwiftUI layout, navigation, Dynamic Type, light/dark mode, safe-area, keyboard, and animation behaviour. Small UI changes need only the relevant help and behavioural checks.
+- For a meaningful UI feature or redesign: design direction → native SwiftUI implementation → build → relevant XCUITest → Reticle visual review → targeted corrections. Reticle is an independent post-implementation check for hierarchy, typography, alignment, clipping, whitespace, competing controls, and light/dark presentation. Triage its findings; they are not blanket redesign instructions. Add physical-device human review at major UX checkpoints.
+- Search Food XCUITests are the deterministic functional acceptance layer for restaurant discovery, aliases, stable IDs, verified handoff, clarification continuity, and deterministic Review Food results. Run the smallest relevant existing subset when those paths change. The current Search Food V1 journeys passed individually; earlier Xcode worker/finalization stalls mean long-term runner reliability is not established. Do not repeatedly retry an infrastructure stall.
+- Do not hard-assert live Gemini estimates, AI food identity, or ingredient interpretation without an intentional stub. Test their deterministic routing boundaries and use targeted device acceptance when needed. Human iPhone review is chiefly for perceived smoothness, keyboard and animation quality, visual polish, real-device quirks, and premium feel—not routine deterministic regression that XCUITest covers.
+
+Use validation in proportion to the change: focused compile/tests, relevant XCUITest for changed deterministic user journeys, Reticle for meaningful UI changes, and physical-device review when warranted. Conserve agent credits.
+
 ## Git and scope hygiene
 
 Always inspect git status before editing. Preserve user changes; do not clean, revert, overwrite, commit, or push unless expressly instructed. In particular, leave these known unrelated modified files untouched unless targeted: `project.pbxproj`, `Info.plist`, `InfoPlist.xcstrings`, `LocalModels.xcstrings`, `Localizable.xcstrings`, and `WeeklyChallenge.xcstrings`. Inspect the exact task-related diff before finishing.
