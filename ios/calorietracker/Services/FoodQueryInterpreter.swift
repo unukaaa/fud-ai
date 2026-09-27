@@ -7,6 +7,7 @@ struct FoodQueryIntent: Equatable, Sendable {
         let restaurantID: String?
         let category: String?
         let confidence: Double
+        let wordRange: Range<Int>
     }
 
     let rawText: String
@@ -17,6 +18,59 @@ struct FoodQueryIntent: Equatable, Sendable {
     let unresolvedTerms: [String]
 
     var hasMultipleItems: Bool { items.count > 1 }
+}
+
+enum FoodResolutionState: String, Equatable, Sendable {
+    case verifiedRestaurant
+    case partiallyVerifiedRestaurant
+    case ausnut
+    case structuredEstimate
+    case aiEstimate
+    case unresolved
+}
+
+struct FoodResolutionComponent: Equatable, Sendable {
+    let query: String
+    let name: String
+    let state: FoodResolutionState
+    let quantity: Double
+    let calories: Int?
+    let protein: Double?
+    let carbs: Double?
+    let fat: Double?
+    let sourceDetail: String?
+    let sourceItemID: String?
+
+    var isResolved: Bool { state != .unresolved && calories != nil }
+}
+
+struct FoodQueryResolution {
+    let analysis: GeminiService.FoodAnalysis?
+    let restaurantMatch: RestaurantMatch?
+    let components: [FoodResolutionComponent]
+    let candidateAnalysis: GeminiService.FoodAnalysis?
+
+    init(analysis: GeminiService.FoodAnalysis?, restaurantMatch: RestaurantMatch?,
+         components: [FoodResolutionComponent], candidateAnalysis: GeminiService.FoodAnalysis? = nil) {
+        self.analysis = analysis
+        self.restaurantMatch = restaurantMatch
+        self.components = components
+        self.candidateAnalysis = candidateAnalysis
+    }
+
+    var unresolvedComponents: [FoodResolutionComponent] {
+        components.filter { !$0.isResolved }
+    }
+
+    var isComplete: Bool { !components.isEmpty && unresolvedComponents.isEmpty }
+}
+
+struct IncompleteFoodQueryError: LocalizedError {
+    let foods: [String]
+
+    var errorDescription: String? {
+        "Could not account for: \(foods.joined(separator: ", ")). Please clarify the food query and try again."
+    }
 }
 
 /// Converts noisy typed or dictated food language into conservative canonical
@@ -64,7 +118,8 @@ enum FoodQueryInterpreter {
                 interpretedName: match.candidate.name,
                 restaurantID: match.candidate.restaurantID,
                 category: match.candidate.category,
-                confidence: match.score
+                confidence: match.score,
+                wordRange: match.range
             ))
             cursor = match.range.upperBound
         }
@@ -115,7 +170,7 @@ enum FoodQueryInterpreter {
         return guarded
     }
 
-    private static func lexicalCleanup(_ value: String) -> String {
+    static func lexicalCleanup(_ value: String) -> String {
         var words = RestaurantQueryNormalizer.normalize(value).split(separator: " ").map(String.init)
         let replacements = [
             "nuggies": "nuggets", "avo": "avocado", "brocoli": "broccoli",
@@ -126,13 +181,13 @@ enum FoodQueryInterpreter {
         ]
         for index in words.indices {
             if let replacement = replacements[words[index]] { words[index] = replacement }
-            if words[index] == "one", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "1" }
-            if words[index] == "two", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "2" }
-            if words[index] == "too", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "2" }
-            if words[index] == "four", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "4" }
-            if words[index] == "six", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "6" }
+            if words[index] == "one", hasFollowingCountableFood(words, after: index) { words[index] = "1" }
+            if words[index] == "two", hasFollowingCountableFood(words, after: index) { words[index] = "2" }
+            if words[index] == "too", hasFollowingCountableFood(words, after: index) { words[index] = "2" }
+            if words[index] == "four", hasFollowingCountableFood(words, after: index) { words[index] = "4" }
+            if words[index] == "six", hasFollowingCountableFood(words, after: index) { words[index] = "6" }
             if words[index] == "for", hasFollowingCountableFood(words, after: index) { words[index] = "4" }
-            if words[index] == "ten", index + 1 < words.count, isCountableFood(words[index + 1]) { words[index] = "10" }
+            if words[index] == "ten", hasFollowingCountableFood(words, after: index) { words[index] = "10" }
         }
         return words.joined(separator: " ")
     }
@@ -173,16 +228,6 @@ enum FoodQueryInterpreter {
         for restaurant in dataset.restaurants {
             add(restaurant.name)
             for alias in restaurant.aliases { add(alias) }
-        }
-        for item in dataset.menuItems {
-            for modifier in item.modifiers {
-                add(modifier.name)
-                for alias in modifier.aliases { add(alias) }
-            }
-            for variant in item.variants {
-                add(variant.name)
-                for alias in variant.aliases { add(alias) }
-            }
         }
         return terms
     }
@@ -277,5 +322,345 @@ enum FoodQueryInterpreter {
             previous = current
         }
         return previous[b.count]
+    }
+}
+
+/// Coordinates existing nutrition sources while retaining an explicit outcome
+/// for every part of a text query. A configured meal is one parent component;
+/// its published child components stay inside the restaurant match.
+enum FoodQueryResolutionService {
+    typealias RestaurantResolver = (String) async -> RestaurantMatch?
+    typealias Estimator = (String) async throws -> GeminiService.FoodAnalysis
+
+    static func resolve(
+        description: String,
+        restaurantResolver: @escaping RestaurantResolver = { await RestaurantNutritionAnalysisService.match(description: $0) },
+        estimate: @escaping Estimator = { try await GeminiService.analyzeTextInput(description: $0) }
+    ) async throws -> FoodQueryResolution {
+        let parent = description.components(separatedBy: "Clarification:").first ?? description
+        let intent = FoodQueryInterpreter.interpret(parent)
+        let isClarification = description.contains("Clarification:")
+        let isConfiguredParent = parent.range(of: #"\b(meal|box)\b"#, options: [.regularExpression, .caseInsensitive]) != nil
+        let modifierWords: Set<String> = ["sauce", "mayo", "mayonnaise", "cheese", "pickle", "pickles", "onion", "onions", "skin"]
+        let residualFoods = intent.unresolvedTerms.filter { !modifierWords.contains($0) }
+        let hasResidualFood = !residualFoods.isEmpty
+        let needsComponents = !isClarification && !isConfiguredParent
+            && (intent.items.count > 1 || (!intent.items.isEmpty && hasResidualFood))
+
+        if !needsComponents {
+            if let match = await restaurantResolver(description) {
+                let analysis = match.foodAnalysis
+                let component = restaurantComponent(query: parent, match: match, analysis: analysis)
+                let coveredParentTerms = Set(meaningfulTokens(
+                    ([match.menuItem.name, match.selectedVariant?.name ?? ""]
+                        + match.resolvedComponents.map(\.name)
+                        + match.additionalComponents.map { $0.menuItem.name }).joined(separator: " ")
+                ))
+                let uncoveredFoods = residualFoods.filter {
+                    !coveredParentTerms.contains(meaningfulTokens($0).first ?? $0)
+                }
+                if isConfiguredParent && !uncoveredFoods.isEmpty {
+                    if let split = try await resolveConfiguredParentAndExtra(
+                        parent, residualFoods: uncoveredFoods,
+                        restaurantResolver: restaurantResolver, estimate: estimate
+                    ) { return split }
+                    return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
+                                               components: [component] + uncoveredFoods.map(unresolved))
+                }
+                var tracked = analysis
+                tracked?.foodResolutionComponents = [component]
+                return FoodQueryResolution(analysis: tracked, restaurantMatch: match, components: [component])
+            }
+            if isConfiguredParent && hasResidualFood {
+                if let split = try await resolveConfiguredParentAndExtra(
+                    parent, residualFoods: residualFoods,
+                    restaurantResolver: restaurantResolver, estimate: estimate
+                ) { return split }
+                return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
+                                           components: [unresolved(parent)])
+            }
+            let analysis = try await estimate(description)
+            return trackEstimate(analysis, query: parent)
+        }
+
+        let segments = split(parent, intent: intent)
+        var records: [FoodResolutionComponent] = []
+        var analyses: [GeminiService.FoodAnalysis] = []
+        for segment in segments {
+            try Task.checkCancellation()
+            let restaurantMatch: RestaurantMatch?
+            if segment.isRestaurant {
+                if let rawMatch = await restaurantResolver(segment.query) {
+                    restaurantMatch = rawMatch
+                } else if let canonical = segment.canonicalQuery {
+                    restaurantMatch = await restaurantResolver(canonical)
+                } else {
+                    restaurantMatch = nil
+                }
+            } else {
+                restaurantMatch = nil
+            }
+            if let match = restaurantMatch,
+               match.clarificationPlan.isEmpty,
+               let analysis = match.foodAnalysis {
+                records.append(restaurantComponent(query: segment.query, match: match, analysis: analysis))
+                analyses.append(analysis)
+                continue
+            }
+            do {
+                let estimateQuery = segment.canonicalQuery ?? segment.query
+                let estimated = try await estimate(estimateQuery)
+                let tracked = trackEstimate(estimated, query: estimateQuery)
+                records.append(contentsOf: tracked.components)
+                if tracked.isComplete, let analysis = tracked.analysis { analyses.append(analysis) }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let quota as HostedAIQuotaError {
+                throw quota
+            } catch {
+                records.append(unresolved(segment.query))
+            }
+        }
+        guard records.allSatisfy(\.isResolved), analyses.count == segments.count else {
+            return FoodQueryResolution(analysis: nil, restaurantMatch: nil, components: records)
+        }
+        return FoodQueryResolution(
+            analysis: aggregate(analyses, components: records),
+            restaurantMatch: nil,
+            components: records
+        )
+    }
+
+    private struct Segment {
+        let query: String
+        let isRestaurant: Bool
+        let canonicalQuery: String?
+    }
+
+    private static func resolveConfiguredParentAndExtra(
+        _ description: String,
+        residualFoods: [String],
+        restaurantResolver: @escaping RestaurantResolver,
+        estimate: @escaping Estimator
+    ) async throws -> FoodQueryResolution? {
+        let words = FoodQueryInterpreter.lexicalCleanup(description).split(separator: " ").map(String.init)
+        guard words.count > 2 else { return nil }
+        let extras = Set(residualFoods)
+        for cut in stride(from: words.count - 1, through: 1, by: -1) {
+            var prefix = Array(words[..<cut])
+            var suffix = Array(words[cut...])
+            while let last = prefix.last, ["and", "with", "plus"].contains(last) { prefix.removeLast() }
+            while let first = suffix.first, ["and", "with", "plus"].contains(first) { suffix.removeFirst() }
+            guard !prefix.isEmpty, !suffix.isEmpty, suffix.contains(where: extras.contains) else { continue }
+            let parentQuery = prefix.joined(separator: " ")
+            guard let match = await restaurantResolver(parentQuery),
+                  match.clarificationPlan.isEmpty,
+                  let parentAnalysis = match.foodAnalysis else { continue }
+            let parentComponent = restaurantComponent(query: parentQuery, match: match, analysis: parentAnalysis)
+            let extraQuery = suffix.joined(separator: " ")
+            do {
+                let extraAnalysis = try await estimate(extraQuery)
+                let tracked = trackEstimate(extraAnalysis, query: extraQuery)
+                let records = [parentComponent] + tracked.components
+                guard tracked.isComplete, let resolvedExtra = tracked.analysis else {
+                    return FoodQueryResolution(analysis: nil, restaurantMatch: nil, components: records)
+                }
+                return FoodQueryResolution(
+                    analysis: aggregate([parentAnalysis, resolvedExtra], components: records),
+                    restaurantMatch: nil, components: records
+                )
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let quota as HostedAIQuotaError {
+                throw quota
+            } catch {
+                return FoodQueryResolution(analysis: nil, restaurantMatch: nil,
+                                           components: [parentComponent, unresolved(extraQuery)])
+            }
+        }
+        return nil
+    }
+
+    private static func split(_ description: String, intent: FoodQueryIntent) -> [Segment] {
+        let words = FoodQueryInterpreter.lexicalCleanup(description).split(separator: " ").map(String.init)
+        var used = Set(intent.items.flatMap { $0.wordRange })
+        var segments: [(Int, Segment)] = []
+        for item in intent.items {
+            var prefix: [String] = []
+            var index = item.wordRange.lowerBound - 1
+            while index >= 0, !used.contains(index),
+                  (Int(words[index]) != nil || ["small", "medium", "large", "regular", "original"].contains(words[index])) {
+                prefix.insert(words[index], at: 0)
+                used.insert(index)
+                index -= 1
+            }
+            var query = (prefix + [item.rawSpan]).joined(separator: " ")
+            var canonical = (prefix + [item.interpretedName]).joined(separator: " ")
+            if item.category == "burger" { query += " only"; canonical += " only" }
+            segments.append((item.wordRange.lowerBound, Segment(query: query, isRestaurant: true,
+                                                                  canonicalQuery: canonical == query ? nil : canonical)))
+        }
+        let unresolved = Set(intent.unresolvedTerms)
+        var gapStart: Int?
+        for index in 0...words.count {
+            let isGap = index < words.count && !used.contains(index)
+            if isGap, gapStart == nil { gapStart = index }
+            if !isGap, let start = gapStart {
+                let range = start..<index
+                if range.contains(where: { unresolved.contains(words[$0]) }) {
+                    let gap = words[range].joined(separator: " ")
+                        .replacingOccurrences(of: #"^(and|with|plus)\s+"#, with: "", options: .regularExpression)
+                        .replacingOccurrences(of: #"\s+(and|with|plus)$"#, with: "", options: .regularExpression)
+                    if !gap.isEmpty { segments.append((start, Segment(query: gap, isRestaurant: false, canonicalQuery: nil))) }
+                }
+                gapStart = nil
+            }
+        }
+        return segments.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
+    private static func restaurantComponent(
+        query: String,
+        match: RestaurantMatch,
+        analysis: GeminiService.FoodAnalysis?
+    ) -> FoodResolutionComponent {
+        FoodResolutionComponent(
+            query: query, name: analysis?.name ?? match.menuItem.name,
+            state: analysis == nil ? .unresolved : (analysis?.nutritionConfidence == "High" ? .verifiedRestaurant : .partiallyVerifiedRestaurant),
+            quantity: Double(match.quantity), calories: analysis?.calories,
+            protein: analysis?.proteinIsKnown == true ? analysis?.protein : nil,
+            carbs: analysis?.carbsAreKnown == true ? analysis?.carbs : nil,
+            fat: analysis?.fatIsKnown == true ? analysis?.fat : nil,
+            sourceDetail: analysis?.nutritionSourceDetail,
+            sourceItemID: match.menuItem.id
+        )
+    }
+
+    static func trackEstimate(_ analysis: GeminiService.FoodAnalysis, query: String) -> FoodQueryResolution {
+        let names = analysis.ingredients.isEmpty ? [analysis.name] : analysis.ingredients.map(\.name)
+        let covered = Set(names.flatMap { meaningfulTokens($0) })
+        let missing = meaningfulTokens(query).filter { !covered.contains($0) }
+        var records: [FoodResolutionComponent] = []
+        if analysis.ingredients.isEmpty {
+            records.append(estimateComponent(query: query, analysis: analysis))
+        } else {
+            for ingredient in analysis.ingredients {
+                let source = ingredient.nutritionSource ?? "AI estimate"
+                records.append(FoodResolutionComponent(
+                    query: ingredient.name, name: ingredient.name, state: state(for: source),
+                    quantity: 1, calories: ingredient.calories, protein: ingredient.protein,
+                    carbs: ingredient.carbs, fat: ingredient.fat,
+                    sourceDetail: ingredient.nutritionSourceDetail, sourceItemID: nil
+                ))
+            }
+        }
+        for token in missing { records.append(unresolved(token)) }
+        var tracked = analysis
+        tracked.foodResolutionComponents = records
+        return FoodQueryResolution(analysis: missing.isEmpty ? tracked : nil, restaurantMatch: nil,
+                                   components: records, candidateAnalysis: tracked)
+    }
+
+    private static func estimateComponent(query: String, analysis: GeminiService.FoodAnalysis) -> FoodResolutionComponent {
+        FoodResolutionComponent(
+            query: query, name: analysis.name, state: state(for: analysis.nutritionSource),
+            quantity: analysis.selectedServingQuantity ?? 1, calories: analysis.calories,
+            protein: analysis.proteinIsKnown ? analysis.protein : nil,
+            carbs: analysis.carbsAreKnown ? analysis.carbs : nil,
+            fat: analysis.fatIsKnown ? analysis.fat : nil,
+            sourceDetail: analysis.nutritionSourceDetail, sourceItemID: nil
+        )
+    }
+
+    private static func state(for source: String) -> FoodResolutionState {
+        if source == "AUSNUT Australia" { return .ausnut }
+        if source == "Structured estimate" { return .structuredEstimate }
+        return .aiEstimate
+    }
+
+    private static func unresolved(_ query: String) -> FoodResolutionComponent {
+        FoodResolutionComponent(query: query, name: query, state: .unresolved, quantity: 1,
+                                calories: nil, protein: nil, carbs: nil, fat: nil,
+                                sourceDetail: nil, sourceItemID: nil)
+    }
+
+    private static func meaningfulTokens(_ value: String) -> [String] {
+        let ignored: Set<String> = ["a", "an", "and", "with", "of", "the", "on", "in", "for", "had", "i", "homemade", "small", "medium", "large", "regular", "only", "plus"]
+        return RestaurantQueryNormalizer.normalize(value).split(separator: " ").map(String.init)
+            .filter { Int($0) == nil && !ignored.contains($0) }
+            .map { $0.hasSuffix("s") && $0.count > 3 ? String($0.dropLast()) : $0 }
+            .map { $0 == "coke" ? "cola" : $0 }
+    }
+
+    private static func aggregate(
+        _ analyses: [GeminiService.FoodAnalysis], components: [FoodResolutionComponent]
+    ) -> GeminiService.FoodAnalysis {
+        let sources = Set(analyses.map(\.nutritionSource))
+        var result = GeminiService.FoodAnalysis(
+            name: analyses.map(\.name).joined(separator: " + "),
+            calories: analyses.reduce(0) { $0 + $1.calories },
+            protein: analyses.reduce(0) { $0 + $1.protein },
+            carbs: analyses.reduce(0) { $0 + $1.carbs },
+            fat: analyses.reduce(0) { $0 + $1.fat },
+            servingSizeGrams: analyses.allSatisfy(\.servingSizeIsKnown)
+                ? analyses.reduce(0) { $0 + $1.servingSizeGrams } : 0
+        )
+        result.servingSizeIsKnown = analyses.allSatisfy(\.servingSizeIsKnown)
+        result.selectedServingQuantity = 1
+        result.selectedServingUnit = "meal"
+        result.proteinIsKnown = analyses.allSatisfy(\.proteinIsKnown)
+        result.carbsAreKnown = analyses.allSatisfy(\.carbsAreKnown)
+        result.fatIsKnown = analyses.allSatisfy(\.fatIsKnown)
+        func sum(_ field: KeyPath<GeminiService.FoodAnalysis, Double?>) -> Double? {
+            guard analyses.allSatisfy({ $0[keyPath: field] != nil }) else { return nil }
+            return analyses.reduce(0) { $0 + ($1[keyPath: field] ?? 0) }
+        }
+        result.sugar = sum(\.sugar)
+        result.addedSugar = sum(\.addedSugar)
+        result.fiber = sum(\.fiber)
+        result.saturatedFat = sum(\.saturatedFat)
+        result.monounsaturatedFat = sum(\.monounsaturatedFat)
+        result.polyunsaturatedFat = sum(\.polyunsaturatedFat)
+        result.cholesterol = sum(\.cholesterol)
+        result.caffeine = sum(\.caffeine)
+        result.sodium = sum(\.sodium)
+        result.potassium = sum(\.potassium)
+        result.transFat = sum(\.transFat)
+        result.calcium = sum(\.calcium)
+        result.iron = sum(\.iron)
+        result.magnesium = sum(\.magnesium)
+        result.zinc = sum(\.zinc)
+        result.vitaminA = sum(\.vitaminA)
+        result.vitaminC = sum(\.vitaminC)
+        result.vitaminD = sum(\.vitaminD)
+        result.vitaminB12 = sum(\.vitaminB12)
+        result.vitaminE = sum(\.vitaminE)
+        result.vitaminK = sum(\.vitaminK)
+        result.folate = sum(\.folate)
+        result.omega3 = sum(\.omega3)
+        result.ingredients = analyses.flatMap { analysis -> [MealIngredient] in
+            if !analysis.ingredients.isEmpty,
+               analysis.ingredients.ingredientTotals.calories == analysis.calories {
+                return analysis.ingredients.map { ingredient in
+                    var tracked = ingredient
+                    if tracked.nutritionSource == nil {
+                        tracked.nutritionSource = analysis.nutritionSource == "AUSNUT Australia"
+                            ? "AI estimate" : analysis.nutritionSource
+                    }
+                    return tracked
+                }
+            }
+            return [MealIngredient(name: analysis.name, grams: analysis.servingSizeGrams,
+                                   calories: analysis.calories, protein: analysis.protein,
+                                   carbs: analysis.carbs, fat: analysis.fat, emoji: analysis.emoji,
+                                   nutritionSource: analysis.nutritionSource,
+                                   nutritionSourceDetail: analysis.nutritionSourceDetail)]
+        }
+        result.resolvedComponents = analyses.flatMap(\.resolvedComponents)
+        result.foodResolutionComponents = components
+        result.nutritionSource = sources.count == 1 ? (sources.first ?? "AI estimate") : "Mixed nutrition sources"
+        result.nutritionSourceDetail = components.compactMap(\.sourceDetail).joined(separator: " · ")
+        result.nutritionConfidence = analyses.allSatisfy { $0.nutritionConfidence == "High" } ? "High" : "Medium"
+        return result
     }
 }

@@ -74,6 +74,8 @@ enum AustralianNutritionService {
             matchedIngredients[index].protein = rounded(match.food.protein * scale)
             matchedIngredients[index].carbs = rounded(match.food.carbs * scale)
             matchedIngredients[index].fat = rounded(match.food.fat * scale)
+            matchedIngredients[index].nutritionSource = "AUSNUT Australia"
+            matchedIngredients[index].nutritionSourceDetail = "Matched: \(match.food.name)"
             matchedCount += 1
         }
 

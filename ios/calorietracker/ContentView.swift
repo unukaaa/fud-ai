@@ -2414,8 +2414,15 @@ private var dailyStepsTaskKey: String {
         analysisTask?.cancel()
         analysisTask = Task {
             do {
-                if allowRestaurantLookup,
-                   let restaurantMatch = await RestaurantNutritionAnalysisService.match(description: description) {
+                let resolution: FoodQueryResolution
+                if allowRestaurantLookup {
+                    resolution = try await FoodQueryResolutionService.resolve(description: description)
+                } else {
+                    let estimate = try await GeminiService.analyzeTextInput(description: description)
+                    let parent = description.components(separatedBy: "Clarification:").first ?? description
+                    resolution = FoodQueryResolutionService.trackEstimate(estimate, query: parent)
+                }
+                if let restaurantMatch = resolution.restaurantMatch {
                     try Task.checkCancellation()
                     if !restaurantMatch.clarificationPlan.isEmpty {
                         let estimate = restaurantMatch.foodAnalysis
@@ -2438,13 +2445,19 @@ private var dailyStepsTaskKey: String {
                         return
                     }
                 }
-                let result = try await GeminiService.analyzeTextInput(description: description)
+                let phase2DClarification = allowClarification && shouldClarify(description: description)
+                if !resolution.isComplete && !(phase2DClarification && resolution.candidateAnalysis != nil) {
+                    throw IncompleteFoodQueryError(foods: resolution.unresolvedComponents.map(\.name))
+                }
+                guard let result = resolution.analysis ?? resolution.candidateAnalysis else {
+                    throw IncompleteFoodQueryError(foods: resolution.unresolvedComponents.map(\.name))
+                }
                 try Task.checkCancellation()
                 currentEmoji = result.emoji
                 retryRequest = nil
                     activeSheet = nil
                     foodLogPhase = .result
-                if allowClarification, shouldClarify(description: description) {
+                if phase2DClarification {
                     // Let the loading sheet finish dismissing before presenting the
                     // clarification sheet; presenting both in the same transaction is
                     // dropped by SwiftUI on a real device.

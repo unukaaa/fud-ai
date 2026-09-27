@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import calorietracker
 
@@ -49,6 +50,11 @@ struct AustralianNutritionServiceTests {
         #expect(result.nutritionSource == "AUSNUT Australia")
         #expect(result.nutritionSourceDetail == "1 of 2 ingredients matched to AUSNUT 2023")
         #expect(result.nutritionConfidence == "Medium")
+        #expect(result.ingredients[0].nutritionSource == "AUSNUT Australia")
+        #expect(result.ingredients[1].nutritionSource == nil)
+        let restored = (try? JSONEncoder().encode(result.ingredients))
+            .flatMap { try? JSONDecoder().decode([MealIngredient].self, from: $0) }
+        #expect(restored?.first?.nutritionSource == "AUSNUT Australia")
     }
 
     @Test func barcodeDataIsNeverOverridden() {

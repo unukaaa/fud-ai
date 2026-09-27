@@ -256,6 +256,8 @@ struct MealIngredient: Identifiable, Codable, Equatable, Sendable {
     var imageFilename: String?
     var additionalImageFilenames: [String]?
     var emoji: String?
+    var nutritionSource: String?
+    var nutritionSourceDetail: String?
 
     nonisolated init(
         id: UUID = UUID(),
@@ -267,7 +269,9 @@ struct MealIngredient: Identifiable, Codable, Equatable, Sendable {
         fat: Double,
         imageFilename: String? = nil,
         additionalImageFilenames: [String]? = nil,
-        emoji: String? = nil
+        emoji: String? = nil,
+        nutritionSource: String? = nil,
+        nutritionSourceDetail: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -279,6 +283,8 @@ struct MealIngredient: Identifiable, Codable, Equatable, Sendable {
         self.imageFilename = imageFilename
         self.additionalImageFilenames = additionalImageFilenames
         self.emoji = emoji
+        self.nutritionSource = nutritionSource
+        self.nutritionSourceDetail = nutritionSourceDetail
     }
 
     nonisolated var allImageFilenames: [String] {

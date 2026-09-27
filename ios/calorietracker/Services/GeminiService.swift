@@ -45,6 +45,7 @@ struct GeminiService {
         var progressiveMeal = false
         var ingredients: [MealIngredient] = []
         var resolvedComponents: [RestaurantResolvedComponent] = []
+        var foodResolutionComponents: [FoodResolutionComponent] = []
         var productMetadata: FoodProductMetadata? = nil
         var nutritionSource = "AI estimate"
         var nutritionSourceDetail: String? = nil
@@ -206,6 +207,9 @@ struct GeminiService {
     }
 
     static func analysisErrorMessage(_ error: Error) -> String {
+        if let incomplete = error as? IncompleteFoodQueryError {
+            return incomplete.localizedDescription
+        }
         if error is AnalysisError || error is AnalysisFallbackError || error is Gemma4LocalModelManager.LocalModelError {
             return error.localizedDescription
         }
