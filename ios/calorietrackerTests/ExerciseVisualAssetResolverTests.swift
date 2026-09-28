@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwiftUI
 import Testing
 import UIKit
 @testable import calorietracker
@@ -10,6 +11,193 @@ struct ExerciseVisualAssetResolverTests {
         "Barbell_Full_Squat_0.jpg",
         "Barbell_Full_Squat_1.jpg"
     ]
+
+    @Test func detachedImageLookupWarmupSharesStableRecordSnapshot() async {
+        let snapshots = await withTaskGroup(of: Set<String>.self) { group in
+            for _ in 0..<4 {
+                group.addTask {
+                    FreeExerciseDBAssetResolver.warmImageLookup()
+                    return Set(FreeExerciseDBRecordsCache.records().map(\.id))
+                }
+            }
+            var snapshots: [Set<String>] = []
+            for await ids in group {
+                snapshots.append(ids)
+            }
+            return snapshots
+        }
+
+        let expectedIDs = Set(FreeExerciseDBRecordsCache.records().map(\.id))
+        #expect(!expectedIDs.isEmpty)
+        #expect(snapshots.count == 4)
+        #expect(snapshots.allSatisfy { $0 == expectedIDs })
+    }
+
+    @Test func manifestPendingPublishesReadyOnceAndRefreshesAssetSelection() async throws {
+        let manifest = try makeManifest(frameCount: 4)
+        let gate = ManifestDecodeGate()
+        var dataLoads = 0
+        let cache = ExerciseVisualManifestCache(
+            loadData: {
+                dataLoads += 1
+                return Data([1])
+            },
+            decode: { _ in
+                await gate.wait()
+                return manifest
+            }
+        )
+
+        cache.start()
+        #expect(cache.state == .pending)
+        #expect(FreeExerciseDBAssetResolver.preferredVisualAsset(
+            for: jpegPaths,
+            gender: .male,
+            state: cache.state,
+            resolveJPEGURL: jpegResolver
+        ) == nil)
+
+        await gate.open()
+        await cache.waitUntilLoaded()
+        #expect(cache.state == .ready(manifest))
+        let selected = FreeExerciseDBAssetResolver.preferredVisualAsset(
+            for: jpegPaths,
+            gender: .male,
+            state: cache.state,
+            resolveJPEGURL: jpegResolver
+        )
+        #expect(selected?.format == .svg)
+        #expect(selected?.frames.count == 4)
+
+        cache.start()
+        await cache.waitUntilLoaded()
+        #expect(dataLoads == 1)
+        #expect(cache.state == .ready(manifest))
+    }
+
+    @Test func manifestPendingPublishesFailedAndOnlyThenUsesExistingFallback() async {
+        let gate = ManifestDecodeGate()
+        var dataLoads = 0
+        let cache = ExerciseVisualManifestCache(
+            loadData: {
+                dataLoads += 1
+                return Data([1])
+            },
+            decode: { _ in
+                await gate.wait()
+                return nil
+            }
+        )
+
+        cache.start()
+        #expect(cache.state == .pending)
+        #expect(FreeExerciseDBAssetResolver.preferredVisualAsset(
+            for: jpegPaths,
+            gender: .male,
+            state: cache.state,
+            resolveJPEGURL: jpegResolver
+        ) == nil)
+
+        await gate.open()
+        await cache.waitUntilLoaded()
+        #expect(cache.state == .failed)
+        let fallback = FreeExerciseDBAssetResolver.preferredVisualAsset(
+            for: jpegPaths,
+            gender: .male,
+            state: cache.state,
+            resolveJPEGURL: jpegResolver
+        )
+        #expect(fallback?.format == .jpeg)
+        #expect(fallback?.frames == jpegPaths.map { .file(resolvedURL(for: $0)) })
+        cache.start()
+        #expect(dataLoads == 1)
+    }
+
+    @Test func mountedExerciseVisualRefreshesFromPendingToAuthoredFrames() async throws {
+        let manifest = try makeManifest(
+            frameCount: 4,
+            format: "png",
+            maleFrames: v2FrameNames(gender: "male"),
+            femaleFrames: v2FrameNames(gender: "female")
+        )
+        let gate = ManifestDecodeGate()
+        let renders = ManifestRenderRecorder()
+        var dataLoads = 0
+        let cache = ExerciseVisualManifestCache(
+            loadData: {
+                dataLoads += 1
+                return Data([1])
+            },
+            decode: { _ in
+                await gate.wait()
+                return manifest
+            }
+        )
+        let host = mountedVisual(cache: cache, renders: renders)
+        defer { host.isHidden = true }
+
+        #expect(await renders.waitForCount(1))
+        #expect(renders.assets.first == .some(nil))
+        #expect(cache.state == .pending)
+
+        await gate.open()
+        await cache.waitUntilLoaded()
+        #expect(await renders.waitForCount(2))
+        #expect(renders.assets.last??.format == .png)
+        #expect(renders.assets.last??.frames.count == 4)
+        #expect(await renders.waitForImage())
+        #expect((renders.displayedImages.first?.size.width ?? 0) > 0)
+        #expect(dataLoads == 1)
+        #expect(await gate.waitCount == 1)
+    }
+
+    @Test func mountedExerciseVisualRefreshesFromPendingToTerminalFallback() async {
+        let gate = ManifestDecodeGate()
+        let renders = ManifestRenderRecorder()
+        var dataLoads = 0
+        let cache = ExerciseVisualManifestCache(
+            loadData: {
+                dataLoads += 1
+                return Data([1])
+            },
+            decode: { _ in
+                await gate.wait()
+                return nil
+            }
+        )
+        let host = mountedVisual(cache: cache, renders: renders)
+        defer { host.isHidden = true }
+
+        #expect(await renders.waitForCount(1))
+        #expect(renders.assets.first == .some(nil))
+        #expect(cache.state == .pending)
+
+        await gate.open()
+        await cache.waitUntilLoaded()
+        #expect(await renders.waitForCount(2))
+        #expect(cache.state == .failed)
+        #expect(renders.assets.last??.format == .jpeg)
+        #expect(dataLoads == 1)
+        #expect(await gate.waitCount == 1)
+    }
+
+    private func mountedVisual(
+        cache: ExerciseVisualManifestCache,
+        renders: ManifestRenderRecorder
+    ) -> UIWindow {
+        let visual = AnimatedExerciseVisual(
+            imagePaths: jpegPaths,
+            animatesFrames: false,
+            manifestCacheForTesting: cache,
+            onRenderedAssetForTesting: { renders.record($0) },
+            onDisplayedImageForTesting: { renders.recordImage($0) }
+        )
+        let host = UIHostingController(rootView: visual.environment(ProfileStore()))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 240))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        return window
+    }
 
     @Test func manifestAcceptsThreeFourAndFiveFrameAtomicGenderSets() throws {
         for frameCount in 3...5 {
@@ -126,7 +314,8 @@ struct ExerciseVisualAssetResolverTests {
         #expect(asset.frames == svgNames.map { authoredFrame($0, format: .svg) })
     }
 
-    @Test func bundledManifestDescribesV2PNGsWithoutBundlingTheCorpus() throws {
+    @Test func bundledManifestDescribesV2PNGsWithoutBundlingTheCorpus() async throws {
+        await FreeExerciseDBAssetResolver.warmVisualManifest()
         let manifestData = try #require(NSDataAsset(name: "ExerciseVisualManifest")?.data)
         let manifest = try ExerciseVisualManifest(data: manifestData)
         let entry = try #require(manifest.entry(for: "Barbell_Full_Squat"))
@@ -135,10 +324,10 @@ struct ExerciseVisualAssetResolverTests {
         #expect(entry.femaleFrameDigests.allSatisfy { $0 != nil })
 
         for gender in [Gender.male, .female] {
-            let asset = FreeExerciseDBAssetResolver.preferredVisualAsset(
+            let asset = try #require(FreeExerciseDBAssetResolver.preferredVisualAsset(
                 for: jpegPaths,
                 gender: gender
-            )
+            ))
 
             #expect(asset.format == .png)
             #expect(asset.frames.count == 4)
@@ -397,5 +586,53 @@ struct ExerciseVisualAssetResolverTests {
 
     private func resolvedURL(for path: String) -> URL {
         URL(fileURLWithPath: "/resolved/\(path)")
+    }
+}
+
+private actor ManifestDecodeGate {
+    private var isOpen = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var waitCount = 0
+
+    func wait() async {
+        waitCount += 1
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        isOpen = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
+@MainActor
+private final class ManifestRenderRecorder {
+    private(set) var assets: [ExerciseVisualAsset?] = []
+    private(set) var displayedImages: [UIImage] = []
+
+    func record(_ asset: ExerciseVisualAsset?) {
+        assets.append(asset)
+    }
+
+    func recordImage(_ image: UIImage) {
+        displayedImages.append(image)
+    }
+
+    func waitForCount(_ count: Int) async -> Bool {
+        for _ in 0..<100 {
+            if assets.count >= count { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return assets.count >= count
+    }
+
+    func waitForImage() async -> Bool {
+        for _ in 0..<250 {
+            if !displayedImages.isEmpty { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return !displayedImages.isEmpty
     }
 }

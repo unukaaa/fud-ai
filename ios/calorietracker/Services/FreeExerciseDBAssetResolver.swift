@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import UIKit
 
 /// One authored workout frame from the shared manifest. Frames are not bundled in
@@ -43,8 +44,8 @@ struct ExerciseVisualAsset: Equatable {
     }
 }
 
-struct ExerciseVisualManifest: Equatable {
-    struct Entry: Equatable {
+nonisolated struct ExerciseVisualManifest: Equatable, Sendable {
+    struct Entry: Equatable, Sendable {
         let exerciseID: String
         let frameCount: Int
         let representativeFrameIndex: Int
@@ -174,15 +175,66 @@ struct ExerciseVisualManifest: Equatable {
     }
 }
 
+@Observable
+final class ExerciseVisualManifestCache {
+    enum State: Equatable {
+        case pending
+        case ready(ExerciseVisualManifest)
+        case failed
+    }
+
+    private(set) var state: State = .pending
+    private var started = false
+    private var loadTask: Task<Void, Never>?
+    private let loadData: @MainActor () -> Data?
+    private let decode: @Sendable (Data) async -> ExerciseVisualManifest?
+
+    init(
+        loadData: @escaping @MainActor () -> Data? = { NSDataAsset(name: "ExerciseVisualManifest")?.data },
+        decode: @escaping @Sendable (Data) async -> ExerciseVisualManifest? = { data in
+            ExerciseVisualManifestCache.decodeManifest(data)
+        }
+    ) {
+        self.loadData = loadData
+        self.decode = decode
+    }
+
+    func start() {
+        guard !started else { return }
+        started = true
+        guard let data = loadData() else {
+            state = .failed
+            return
+        }
+
+        let decode = decode
+        loadTask = Task.detached(priority: .utility) { [weak self] in
+            let manifest = await decode(data)
+            guard let self else { return }
+            await self.publish(manifest.map(State.ready) ?? .failed)
+        }
+    }
+
+    nonisolated private static func decodeManifest(_ data: Data) -> ExerciseVisualManifest? {
+        try? ExerciseVisualManifest(data: data)
+    }
+
+    private func publish(_ result: State) {
+        state = result
+    }
+
+    func waitUntilLoaded() async {
+        start()
+        await loadTask?.value
+    }
+}
+
 struct FreeExerciseDBAssetResolver {
     /// The manifest is compiled as an asset-catalog data set; it is the only workout-frame
     /// artifact in release builds. Frames themselves are delivered by `WorkoutFrameStore`.
-    private static let bundledVisualManifest: ExerciseVisualManifest? = {
-        guard let data = NSDataAsset(name: "ExerciseVisualManifest")?.data else { return nil }
-        return try? ExerciseVisualManifest(data: data)
-    }()
+    private static let visualManifestCache = ExerciseVisualManifestCache()
 
-    static func exercisesJSONURL() -> URL? {
+    nonisolated static func exercisesJSONURL() -> URL? {
         firstExistingURL(candidates: [
             Bundle.main.url(forResource: "exercises", withExtension: "json"),
             Bundle.main.url(forResource: "exercises", withExtension: "json", subdirectory: "FreeExerciseDB/dist"),
@@ -198,20 +250,61 @@ struct FreeExerciseDBAssetResolver {
         }
     }
 
-    static func preferredVisualAsset(for imagePaths: [String], gender: Gender) -> ExerciseVisualAsset {
+    static func preferredVisualAsset(for imagePaths: [String], gender: Gender) -> ExerciseVisualAsset? {
         preferredVisualAsset(
             for: imagePaths,
             gender: gender,
-            manifest: bundledVisualManifest,
-            resolveJPEGURL: imageURL(for:)
+            state: visualManifestCache.state,
+            resolveJPEGURL: { imageURL(for: $0) }
         )
+    }
+
+    #if DEBUG
+    static func preferredVisualAsset(
+        for imagePaths: [String],
+        gender: Gender,
+        testingCache: ExerciseVisualManifestCache
+    ) -> ExerciseVisualAsset? {
+        preferredVisualAsset(
+            for: imagePaths,
+            gender: gender,
+            state: testingCache.state,
+            resolveJPEGURL: { imageURL(for: $0) }
+        )
+    }
+    #endif
+
+    static func preferredVisualAsset(
+        for imagePaths: [String],
+        gender: Gender,
+        state: ExerciseVisualManifestCache.State,
+        resolveJPEGURL: @MainActor (String) -> URL?
+    ) -> ExerciseVisualAsset? {
+        switch state {
+        case .pending:
+            return nil
+        case .ready(let manifest):
+            return preferredVisualAsset(
+                for: imagePaths,
+                gender: gender,
+                manifest: manifest,
+                resolveJPEGURL: resolveJPEGURL
+            )
+        case .failed:
+            return preferredVisualAsset(
+                for: imagePaths,
+                gender: gender,
+                manifest: nil,
+                resolveJPEGURL: resolveJPEGURL
+            )
+        }
     }
 
     static func preferredVisualAsset(
         for imagePaths: [String],
         gender: Gender,
         manifest: ExerciseVisualManifest?,
-        resolveJPEGURL: (String) -> URL?
+        resolveJPEGURL: @MainActor (String) -> URL?
     ) -> ExerciseVisualAsset {
         if
             let exerciseID = exerciseID(from: imagePaths),
@@ -282,22 +375,26 @@ struct FreeExerciseDBAssetResolver {
         return imageURLs(for: bestMatch?.images ?? [])
     }
 
-    private static let imagePathsByName: [String: [String]] = {
+    nonisolated private static let imagePathsByName: [String: [String]] = {
         imageRecords.reduce(into: [:]) { partialResult, record in
             partialResult[record.name.normalizedExerciseName] = record.images
         }
     }()
 
-    private static let imageRecords: [FreeExerciseDBRecord] = {
+    nonisolated private static let imageRecords: [FreeExerciseDBRecord] = {
         FreeExerciseDBRecordsCache.records()
     }()
 
-    static func warmImageLookup() {
+    nonisolated static func warmImageLookup() {
         _ = imagePathsByName
     }
 
-    static func warmVisualManifest() {
-        _ = bundledVisualManifest
+    static func startManifestLoading() {
+        visualManifestCache.start()
+    }
+
+    static func warmVisualManifest() async {
+        await visualManifestCache.waitUntilLoaded()
     }
 
     private static func imageURL(for relativePath: String) -> URL? {
@@ -336,7 +433,7 @@ struct FreeExerciseDBAssetResolver {
         return nil
     }
 
-    private static func firstExistingURL(candidates: [URL?]) -> URL? {
+    nonisolated private static func firstExistingURL(candidates: [URL?]) -> URL? {
         candidates.compactMap { $0 }.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
@@ -392,7 +489,7 @@ struct FreeExerciseDBAssetResolver {
 }
 
 private extension String {
-    var normalizedExerciseName: String {
+    nonisolated var normalizedExerciseName: String {
         lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }

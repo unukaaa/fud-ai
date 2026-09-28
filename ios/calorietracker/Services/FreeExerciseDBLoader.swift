@@ -1,10 +1,11 @@
 import Foundation
 
 enum FreeExerciseDBRecordsCache {
-    private static let lock = NSLock()
-    private static var cachedRecords: [FreeExerciseDBRecord]?
+    nonisolated private static let lock = NSLock()
+    // Every access is guarded by lock, including the initial file read and decode.
+    nonisolated(unsafe) private static var cachedRecords: [FreeExerciseDBRecord]?
 
-    static func records() -> [FreeExerciseDBRecord] {
+    nonisolated static func records() -> [FreeExerciseDBRecord] {
         lock.lock()
         defer { lock.unlock() }
         if let cachedRecords {
@@ -62,7 +63,7 @@ struct FreeExerciseDBLoader {
     }
 }
 
-struct FreeExerciseDBRecord: Decodable {
+nonisolated struct FreeExerciseDBRecord: Decodable, Sendable {
     let id: String
     let name: String
     let force: String?

@@ -1,59 +1,49 @@
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`.
-- Last production checkpoint before this handoff-only commit: `3580a99efaadc2ab2cdc40f13a0cf37f696c97d8`.
-- Remote status: local `main` and `origin/main` are synchronized at this handoff-only checkpoint. Workout warning corrections and Review Food V2 work remain uncommitted.
-- Current development phase: Search Food hardening is pushed. The local Review Food V2 presentation slice remains on validation HOLD because Search Food suggestion activation is not reliable.
+- Branch: `main`; HEAD and `origin/main`: `f01e43cda` (no commit or push this task).
+- Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. Exercise-manifest readiness, including mounted-view refresh, is locally validated and ready for a carefully scoped commit.
 
 ## Last task
-- Task: Read-only ownership audit for `ExerciseCatalogWarmup.swift:16` only.
-- Status: HOLD.
-- Summary: `ExerciseLibraryService.shared` is MainActor-isolated by the app target's default actor isolation, yet warmup accesses it from a detached task. Its lazy initialization performs bundled catalog read/decode, immutable item construction, and sorting; these operations have no UI dependency. MainActor ownership belongs to the workout store's mutable custom-item merge/cache and view publication. No production code changed. Search Food / Review Food remain on HOLD.
+- Task: Deterministic mounted-view refresh verification for async `ExerciseVisualManifest` readiness.
+- Status: COMPLETE for the exercise-manifest slice. Search Food / Review Food HOLD is unchanged.
+- Summary: A DEBUG-only injected cache and render/frame callbacks let tests mount the real `AnimatedExerciseVisual` while decoding is gated. The mounted view first reports pending, then publishes the authored PNG asset and loads a non-empty image after ready; a separate test reports the original JPEG fallback only after failed. Both prove one asset load/decode. Default production resolution is unchanged; no global override was added.
 
 ## Changes
-- Task 1 commit: `3580a99ef` — `Harden Search Food interaction and accessibility`, containing `AGENTS.md`, the prior handoff, `TextFoodInputView.swift`, and `SearchFoodAcceptanceUITests.swift`.
-- Task 2: read-only source/model/design audit; no product edits.
-- Files changed this task: this handoff only. Prior lookup/cache and filter-only corrections, Review Food files, Search Food, six protected files, scheme edit, and `ExerciseCatalogWarmup.swift` were not touched.
-- Task 3 UI behaviour: compact inline emoji/identity summary; prominent calories and three macros; long name no longer competes horizontally with source badge; partial restaurant/AUSNUT source-card wording no longer claims full verification; ingredient rows show existing per-ingredient provenance when populated.
-- No nutrition calculations, serving/editing actions, Search Food routing, restaurant/AUSNUT data, or component models were intentionally changed.
+- This task changed `ios/calorietracker/Services/FreeExerciseDBAssetResolver.swift`, `ios/calorietracker/Views/AnimatedExerciseVisual.swift`, `ios/calorietrackerTests/ExerciseVisualAssetResolverTests.swift`, and this handoff. The prior uncommitted line-18 warmup change remains in `ExerciseCatalogWarmup.swift`.
+- Warmup line 16 and catalog loading are unchanged. Existing unrelated edits within the resolver/test files predate this task and remain intact.
+- No nutrition, Search Food, Review Food, scheme, or protected-file changes were made.
 
 ## Validation
-- Current line-16 audit: read-only source/Git inspection; 0 tests, 0 builds, 0 XCUITest executions. Prior results below are historical, not rerun here.
-- Focused/unit tests: new detached cache/lookup test passed within `ExerciseVisualAssetResolverTests`: 16 executions, 16 passed, 0 failed, 0 skipped on arm64 iPhone 17 Simulator; xcodebuild exited 0 and the result bundle confirmed counts. An initial method-selector attempt exited 0 but selected 0 tests, so it is not a pass. Prior `ExerciseSearchMatcherTests` 5/5 passed (not rerun this task).
-- XCUITest: 0 executions this task. Prior uninstrumented acceptance: 7 executions / 4 passes / 3 failures / 0 skips, not green. Prior temporary diagnostics: 4 executions / 0 passes / 4 instrumentation failures / 0 skips, not product verdicts.
-- arm64 build: latest iOS Simulator app build exited 0. Across the bounded mechanical warning corrections, the full app-warning count fell from 6 to 3 (latest step 4 to 3); `ExerciseCatalogWarmup.swift:17` is gone. Warm-up lines 16 and 18 and the out-of-scope Search Food warning remain. The unit-test target emitted separate, unrelated test-source warnings; these are not included in the app-build count.
-- Physical-device validation: Task 3 not performed.
-- Reticle review: not performed; not a native-iOS acceptance tool in this configuration.
-- UI Skills / Designer Helper review: both activated for the audit; FWC Liquid Glass and swiftui-specialist guidance consulted. No glass was added to scrolling content.
-- Simulator capture: previous diagnostic video, screenshots, and hierarchy showed Cavendish `16502001` first at x=30–310, y=254.3–328.7 pt, with Lady Finger `16502002` second. XCUITest synthesized x=141.7, y=283.3 pt inside Cavendish's AX frame, but Lady Finger opened. No new screenshot or native tap was obtained in the warning audit. Review Food V2 appearance remains unverified.
+- Final focused suite: `ExerciseVisualAssetResolverTests` on arm64 iPhone 17 Simulator: **20 executed, 20 passed, 0 failed, 0 skipped**, `xcodebuild` exit 0 and result-bundle summary verified. Two new tests mount `AnimatedExerciseVisual`; the ready test also observes a decoded non-empty PNG image. Prior 18 resolver/cache tests remain green. One initial 20-test run had 18 passes/2 failures from a test-only nested-optional assertion error; the assertion was corrected and the final two suite runs passed 20/20.
+- Final arm64 Simulator app: **clean build exit 0** after the last test-hook edit. App warnings remain **2**: catalog line 16 and out-of-scope `RestaurantFoodSearchIndex.swift:102`; line 18 remains warning-free. Test-target warnings are separate.
+- XCUITest: not needed; mounted SwiftUI view was exercised in the focused test target. Physical device: not run; visual polish is not claimed.
+- Design guidance: `swiftui-specialist` consulted for narrow observable-state invalidation. Reticle/UI Skills review not applicable to this backend/readiness task.
+- `git diff --check` for task files passed. One sandboxed clean-build attempt failed before compilation due to Xcode cache/Simulator permissions; the permission-corrected final clean build passed.
 
 ## Architecture decisions
-- Review Food already receives parent nutrition, serving metadata, and `MealIngredient` source/detail fields. This slice uses existing display data only; no nutrition or provenance model redesign is required.
-- Retain photo carousel, ingredient/nutrition/serving editors, and fixed Add action. Do not add decorative Liquid Glass to the scrolling content.
-- Task 2 audit ranked contradictory partial-source wording and hidden mixed provenance High; empty emoji space, long-name compression, four equal cards, and fixed-width serving controls Medium; raw technical source IDs and duplicate details Low. The implementation addressed only the first coherent summary/provenance slice.
-- Workout ownership: project-wide default actor isolation is MainActor. `WorkoutsView.refreshDisplayItems()` snapshots an immutable `[ExerciseLibraryItem]` and `ExerciseLibraryFilterRequest` on the UI actor, computes in the existing detached user-initiated task, then publishes through `MainActor.run` with its generation guard. Exercise items contain only immutable strings/string arrays; sort is a value enum; matcher uses strings and a fixed immutable alias map. The explicit-array `ExerciseLibraryService` initializer and its filtering/compare helpers are nonisolated; default loading and `shared` remain MainActor-isolated. No runtime scheduling or filter ordering logic changed.
-- Image lookup ownership: `FreeExerciseDBRecord` is a Sendable immutable value of strings/arrays. `FreeExerciseDBRecordsCache.records()` guards every read/write of its private cached array, including file read/decode, with `NSLock`; only that manually synchronized property uses `nonisolated(unsafe)`. Resource URL lookup uses Foundation Bundle/FileManager, and image lookup lazily constructs immutable static arrays/dictionaries with pure string normalization. Only these data-only members and `warmImageLookup()` became nonisolated. UIKit `NSDataAsset` manifest loading and the shared catalog loader remain MainActor-isolated; no runtime scheduling or synchronization changed.
-- Catalog ownership audit: `shared` is a lazy `static let` of an immutable service, but its default initializer invokes `FreeExerciseDBLoader.load()`. The loader reads/decode-caches bundled JSON under the existing lock, maps Sendable record values into immutable `ExerciseLibraryItem` values, and sorts names; no SwiftUI/UIKit access or mutable UI state occurs in that chain. `StrengthWorkoutStore.exerciseLibrary` reads the base array, merges device-local custom items, and mutates its own cached service/fingerprint on MainActor; `UserExerciseEditorView` also reads `shared` from UI. The smallest plausible correction is a narrowly nonisolated, Sendable catalog loader/service singleton while keeping mutable store publication MainActor-owned. This needs a separate implementation/validation task; do not broadly annotate the workout store or move decoding onto MainActor.
+- `ExerciseVisualManifestCache` is MainActor-owned and observable. `start()` is idempotent; missing asset or invalid decode is a cached terminal failure, not a retry loop. Pending is distinct from failure.
+- The parser and its immutable manifest value are nonisolated/Sendable. Decoding occurs in a detached utility task; terminal state is published on MainActor. Startup warmup awaits that same one-shot task, while a first view can start it independently.
+- Eventual ready/failed rendering retains existing authored-frame/JPEG fallback rules; only the pending first render may temporarily show the neutral existing placeholder. No catalog line-16 ownership change was made.
 
 ## Known issues / risks
-- Task 3 acceptance is not green. The XCUITest wrong-row activation is proven, but native hit testing was not compared because the Mac was locked. SwiftUI popover hit testing, XCUITest synthesis, and transient layout shift remain competing explanations. No demonstrated static dataset-ID mapping defect exists. Do not weaken identity assertions or infer reliable handoff.
-- Three app warnings remain: `ExerciseCatalogWarmup.swift:16` still reaches MainActor-isolated `ExerciseLibraryService.shared` and remains HOLD due to lazy-singleton first-access semantics; `:18` reaches the UIKit `NSDataAsset` manifest and is unreviewed/high-risk; `RestaurantFoodSearchIndex.swift:102` is out of scope during Search Food HOLD. Do not move heavy loading wholesale to MainActor merely to clear warnings.
-- Line-16 timing risk: making the immutable singleton legally nonisolated would preserve the synchronous API and once-only initialization, but would not guarantee background execution. The detached warmup is only scheduled at app startup; if a UI consumer reaches `shared` first, the same decode/map/sort can run on MainActor and cause a hitch. A guaranteed off-main loader with MainActor publication would need explicit readiness/fallback semantics and could change initialization order or visible behavior. No decision to redesign catalog readiness/publication has been made; keep implementation on HOLD.
-- Review Food Task 3 visual layout, Dynamic Type, dark mode, and physical-device feel have not been verified.
-- Existing serving-unit wrapping, raw technical source IDs, and duplicate detail presentation remain outside this slice.
+- Search Food identity-strict Banana/Big Mac/Six-nuggets acceptance remains unreliable. In prior diagnostics, a synthesized tap inside Cavendish's accessibility frame opened Lady Finger; native-vs-XCUITest hit testing remains unclassified. Do not judge or commit Review Food V2 until its intended identities can be reached reliably.
+- Catalog warmup line 16 remains HOLD due to lazy-singleton first-access ownership/timing; no catalog-readiness redesign has been chosen. Search Food warning at `RestaurantFoodSearchIndex.swift:102` remains out of scope.
+- The manifest's earlier single Simulator first-load measurement was 38.062 ms total (4.461 ms asset, 33.398 ms decode/validation), all observed on the main thread before this change. No new physical-device timing or visual-refresh measurement was made.
+- Uncommitted Review Food V2 presentation and prior workout changes remain separate from this task.
+- Exercise-manifest rendered refresh is now verified in a mounted Debug view with a gated cache. This does not replace physical-device judgment of animation/polish. The DEBUG-only seam has no release-build path or global mutable override.
 
 ## Protected working-tree changes
-- Preserve unrelated uncommitted edits: `ios/calorietracker.xcodeproj/project.pbxproj`, `ios/calorietracker/Info.plist`, `ios/calorietracker/InfoPlist.xcstrings`, `ios/calorietracker/LocalModels.xcstrings`, `ios/calorietracker/Localizable.xcstrings`, `ios/calorietracker/WeeklyChallenge.xcstrings`.
-- Preserve the existing uncommitted `ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme` edit. None was staged, committed, reset, or edited during this run.
+- Preserve unrelated edits to `ios/calorietracker.xcodeproj/project.pbxproj`, `ios/calorietracker/Info.plist`, `ios/calorietracker/InfoPlist.xcstrings`, `ios/calorietracker/LocalModels.xcstrings`, `ios/calorietracker/Localizable.xcstrings`, and `ios/calorietracker/WeeklyChallenge.xcstrings`.
+- Preserve the existing `ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme` edit. None was staged, committed, reset, or modified in this task.
 
 ## Git state
-- Committed/pushed: production hardening `3580a99ef`, earlier handoff-only HOLD checkpoint `9ee1e1f42`, and this handoff-only checkpoint. No production/test files were included in this checkpoint.
-- Uncommitted intended work: existing Task 3 `FoodResultView.swift`, `SearchFoodAcceptanceUITests.swift`, earlier exercise-resolver and filter-only corrections, and the lookup/cache correction and test.
-- Unrelated/protected modifications: six files and scheme edit listed above remain local and uncommitted. No staged/conflicted files are intended.
+- Committed/pushed: unchanged; local `main` and `origin/main` match at `f01e43cda`.
+- Uncommitted intended work: validated manifest-readiness implementation/tests, this handoff update, earlier workout changes, and Review Food V2 files. The resolver/test files also contain earlier unrelated workout edits, so any later commit must stage exact hunks/files deliberately. No staged or conflicted files; no commit or push this task.
+- Unrelated/protected changes: six files plus scheme edit listed above, still local and uncommitted.
 
 ## Recommended next task
-For concurrency, scope a separate minimal implementation/validation task for a Sendable nonisolated catalog singleton and loader, with an explicit first-access timing check; decide separately whether a strict never-on-main guarantee warrants asynchronous publication. Leave line 18's UIKit manifest for its own decision. Search Food / Review Food remain on HOLD; their next acceptance diagnostic is still an independent native-style Cavendish tap after the Mac is unlocked. Do not commit Review Food V2 until identity-strict journeys pass.
+Package the validated exercise-manifest readiness slice as a focused local commit only after auditing exact staged hunks against the earlier workout edits in shared files; do not include Search Food, Review Food, protected edits, or the scheme. Separately, Search Food remains on HOLD pending native-vs-XCUITest Cavendish hit-target evidence.
 
 ## Human decision required
-Unlock the Mac (or provide a physical-device observation) before an independent native-versus-XCUITest classification can be made. No product correction is authorized by the current evidence.
+No decision is needed for the validated exercise-manifest slice. Separately, unlock the Mac or provide a physical-device observation for the native-vs-XCUITest Search Food hit-target diagnosis. No Search Food product fix is justified by the current evidence.

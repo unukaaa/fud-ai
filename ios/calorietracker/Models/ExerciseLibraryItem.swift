@@ -1,6 +1,6 @@
 import Foundation
 
-struct ExerciseLibraryItem: Identifiable, Hashable {
+nonisolated struct ExerciseLibraryItem: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
     let rawLevel: String
@@ -121,7 +121,7 @@ struct ExerciseLibraryItem: Identifiable, Hashable {
     }
 }
 
-enum ExerciseLibrarySort: String, CaseIterable, Identifiable, Codable, Hashable {
+nonisolated enum ExerciseLibrarySort: String, CaseIterable, Identifiable, Codable, Hashable, Sendable {
     case name = "Name"
     case level = "Level"
     case primaryMuscles = "Primary"
@@ -138,11 +138,11 @@ enum ExerciseLibrarySort: String, CaseIterable, Identifiable, Codable, Hashable 
 }
 
 private extension String {
-    var trimmed: String {
+    nonisolated var trimmed: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    var nilIfEmpty: String? {
+    nonisolated var nilIfEmpty: String? {
         isEmpty ? nil : self
     }
 }

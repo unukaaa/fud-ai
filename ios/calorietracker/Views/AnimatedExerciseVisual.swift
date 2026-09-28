@@ -16,20 +16,35 @@ struct AnimatedExerciseVisual: View {
     var maxPixelSize: Int? = nil
     var fallbackSystemImage = "figure.strengthtraining.traditional"
     var fallbackTitle = String(localized: "Exercise")
+    #if DEBUG
+    var manifestCacheForTesting: ExerciseVisualManifestCache? = nil
+    var onRenderedAssetForTesting: ((ExerciseVisualAsset?) -> Void)? = nil
+    var onDisplayedImageForTesting: ((UIImage) -> Void)? = nil
+    #endif
     @Environment(ProfileStore.self) private var profileStore
     @State private var animate = false
 
     var body: some View {
         let visualAsset = resolvedVisualAsset
 
-        ZStack {
-            if !visualAsset.frames.isEmpty {
+        let content = ZStack {
+            if let visualAsset, !visualAsset.frames.isEmpty {
+                #if DEBUG
+                ExerciseImageView(
+                    asset: visualAsset,
+                    animatesFrames: animatesFrames,
+                    maxPixelSize: effectiveMaxPixelSize,
+                    placeholder: AnyView(fallbackVisual),
+                    onDisplayedImageForTesting: onDisplayedImageForTesting
+                )
+                #else
                 ExerciseImageView(
                     asset: visualAsset,
                     animatesFrames: animatesFrames,
                     maxPixelSize: effectiveMaxPixelSize,
                     placeholder: AnyView(fallbackVisual)
                 )
+                #endif
             } else {
                 fallbackVisual
             }
@@ -41,6 +56,23 @@ struct AnimatedExerciseVisual: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 0.5)
         )
+        .task {
+            #if DEBUG
+            if let manifestCacheForTesting {
+                manifestCacheForTesting.start()
+                return
+            }
+            #endif
+            FreeExerciseDBAssetResolver.startManifestLoading()
+        }
+
+        #if DEBUG
+        return content.onChange(of: visualAsset, initial: true) { _, asset in
+            onRenderedAssetForTesting?(asset)
+        }
+        #else
+        return content
+        #endif
     }
 
     private var effectiveMaxPixelSize: Int? {
@@ -55,11 +87,28 @@ struct AnimatedExerciseVisual: View {
         return max(Int(ceil(height * scale)), 1)
     }
 
-    private var resolvedVisualAsset: ExerciseVisualAsset {
+    private var resolvedVisualAsset: ExerciseVisualAsset? {
+        #if DEBUG
+        let directAsset = manifestCacheForTesting.map {
+            FreeExerciseDBAssetResolver.preferredVisualAsset(
+                for: imagePaths,
+                gender: profileStore.profile.gender,
+                testingCache: $0
+            )
+        } ?? FreeExerciseDBAssetResolver.preferredVisualAsset(
+            for: imagePaths,
+            gender: profileStore.profile.gender
+        )
+        #else
         let directAsset = FreeExerciseDBAssetResolver.preferredVisualAsset(
             for: imagePaths,
             gender: profileStore.profile.gender
         )
+        #endif
+        guard let directAsset else {
+            // Loading is not a missing manifest; wait for the observable terminal state.
+            return nil
+        }
         if !directAsset.frames.isEmpty {
             return directAsset
         }
@@ -125,6 +174,9 @@ private struct ExerciseImageView: View {
     /// Shown while no frame could be produced (authored frames are fetched on demand and
     /// may be unavailable offline before their first download).
     let placeholder: AnyView
+    #if DEBUG
+    var onDisplayedImageForTesting: ((UIImage) -> Void)? = nil
+    #endif
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var frameIndex = 0
     @State private var displayedImage: UIImage?
@@ -160,6 +212,9 @@ private struct ExerciseImageView: View {
             if let firstFrame = await loadFrame(at: frameIndex) {
                 guard !Task.isCancelled else { return }
                 displayedImage = firstFrame
+                #if DEBUG
+                onDisplayedImageForTesting?(firstFrame)
+                #endif
             } else {
                 guard !Task.isCancelled else { return }
                 frameUnavailable = true

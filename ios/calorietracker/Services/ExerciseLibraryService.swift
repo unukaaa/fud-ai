@@ -10,7 +10,7 @@ struct ExerciseCategoryCount: Identifiable, Hashable {
 struct ExerciseLibraryService {
     static let shared = ExerciseLibraryService()
 
-    let exercises: [ExerciseLibraryItem]
+    nonisolated let exercises: [ExerciseLibraryItem]
 
     var availableForces: [String] {
         Self.sortedUnique(exercises.map(\.force))
@@ -47,6 +47,10 @@ struct ExerciseLibraryService {
         Self.sortedUnique(exercises.flatMap(\.secondaryMuscles))
     }
 
+    nonisolated init(exercises: [ExerciseLibraryItem]) {
+        self.exercises = exercises
+    }
+
     init(exercises: [ExerciseLibraryItem]? = nil) {
         if let exercises {
             self.exercises = exercises
@@ -56,7 +60,7 @@ struct ExerciseLibraryService {
         self.exercises = FreeExerciseDBLoader.load()
     }
 
-    func filtered(
+    nonisolated func filtered(
         levels: Set<String>,
         rawEquipment: Set<String>,
         primaryMuscles: Set<String>,
@@ -126,14 +130,14 @@ struct ExerciseLibraryService {
             }
     }
 
-    private static func compare(_ lhs: String, _ rhs: String, lhsName: String, rhsName: String) -> Bool {
+    nonisolated private static func compare(_ lhs: String, _ rhs: String, lhsName: String, rhsName: String) -> Bool {
         if lhs == rhs {
             return lhsName < rhsName
         }
         return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
     }
 
-    private static func levelSortRank(_ level: String) -> Int {
+    nonisolated private static func levelSortRank(_ level: String) -> Int {
         switch level.lowercased() {
         case "beginner": return 0
         case "intermediate": return 1
@@ -143,7 +147,7 @@ struct ExerciseLibraryService {
     }
 }
 
-struct ExerciseLibraryFilterRequest: Sendable {
+nonisolated struct ExerciseLibraryFilterRequest: Sendable {
     let levels: Set<String>
     let rawEquipment: Set<String>
     let primaryMuscles: Set<String>
@@ -157,7 +161,7 @@ struct ExerciseLibraryFilterRequest: Sendable {
 }
 
 enum ExerciseLibraryFilterEngine {
-    static func filter(
+    nonisolated static func filter(
         exercises: [ExerciseLibraryItem],
         request: ExerciseLibraryFilterRequest
     ) -> [ExerciseLibraryItem] {

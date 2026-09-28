@@ -15,7 +15,7 @@ enum ExerciseCatalogWarmup {
         Task.detached(priority: .utility) {
             _ = ExerciseLibraryService.shared
             FreeExerciseDBAssetResolver.warmImageLookup()
-            FreeExerciseDBAssetResolver.warmVisualManifest()
+            await FreeExerciseDBAssetResolver.warmVisualManifest()
         }
     }
 }

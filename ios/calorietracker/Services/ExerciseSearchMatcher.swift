@@ -1,7 +1,7 @@
 import Foundation
 
 /// Tokenized AND search for the exercise library, with optional query aliases.
-enum ExerciseSearchMatcher {
+nonisolated enum ExerciseSearchMatcher {
     /// Maps common multi-word phrases to catalog exercise IDs.
     static let aliases: [String: String] = [
         "cable pushdown": "Triceps_Pushdown",
