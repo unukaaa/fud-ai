@@ -13,7 +13,7 @@ validation_evidence_ref: "#validation"
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`; latest pushed handoff checkpoint is `c9613689e`. Search Food and Review Food remain on HOLD.
+- Branch: `main`; dry-run dispatcher checkpoint `381299e19` is pushed to `origin/main`. Search Food and Review Food remain on HOLD.
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
@@ -46,7 +46,7 @@ validation_evidence_ref: "#validation"
 - Current gate: `HOLD` / `AMBER`; `auto_start_allowed: false`; `next_task_envelope: NEXT_TASK.md`. The envelope is advisory, never authorization. No commit/push permission is granted.
 - Decision tool: `ruby scripts/automation_decision.rb` reads live routing files and Git state; `--self-test` uses isolated in-memory fixtures. A future GREEN case needs structured passing validation tied to HEAD, a stable task ID, and a trusted finite approved plan. The tool has no dispatch capability; `LAUNCH_ALLOWED` is not permission to bypass the external approval source.
 - Dry-run adapter: `ruby scripts/automation_dispatch.rb` reuses the decision gate, re-reads live inputs before emitting an envelope, and fails closed if inputs change. It contains no task-launch or external API call.
-- Next integration step: checkpoint the validated automation-only adapter, then review trusted approval provenance and the final pre-launch recheck contract before separately authorizing any real launcher.
+- Next integration step: review trusted approval provenance and the final pre-launch recheck contract before separately authorizing any real launcher.
 
 ## Architecture decisions
 - `ExerciseVisualManifestCache` is MainActor-owned and observable. `start()` is idempotent; missing asset or invalid decode is a cached terminal failure, not a retry loop. Pending is distinct from failure.
@@ -66,12 +66,12 @@ validation_evidence_ref: "#validation"
 - Preserve the existing `ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme` edit. None of these protected/scheme files was staged, committed, reset, or modified in this task.
 
 ## Git state
-- Pushed decision-layer commit: `7e11b1309`; pushed handoff follow-up: `c9613689e`. The adapter, module-entry guard, and this handoff are local, uncommitted, and unpushed. No files are staged.
+- Pushed decision-layer commit: `7e11b1309`; pushed handoff follow-up: `c9613689e`; pushed dry-run dispatcher: `381299e19` (`scripts/automation_dispatch.rb`, `scripts/automation_decision.rb`, `CURRENT_HANDOFF.md`). No app/test file was included.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
-Checkpoint the validated automation-only dry-run adapter without including app or protected edits. Do not enable real task launch; trusted approval provenance and a final pre-launch recheck need separate review and authorization. Search Food / Review Food V2 remain on HOLD.
+Review trusted approval provenance and the final pre-launch recheck contract as a bounded, read-only task. Do not enable real task launch without separate authorization. Search Food / Review Food V2 remain on HOLD.
 
 ## Human decision required
 None. Test infrastructure and native hit testing remain on HOLD; no Search Food product fix is justified by the current evidence.
