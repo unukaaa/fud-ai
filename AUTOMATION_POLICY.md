@@ -38,3 +38,23 @@ The repository and a local `--approval` file cannot attest their own authority. 
 The invocation digest binds the task ID and full task digest, current HEAD, exact allowed and forbidden files, validation evidence for that HEAD, remaining task count and duration bounds, start/expiry times, and both task and approval commit/push permissions. Any change invalidates the receipt. Commit/push remain false in this GREEN-only contract; a future permission model needs separate explicit authorization and review.
 
 Immediately before any future launch, re-read HEAD, Git/protected working-tree state, all three routing files, and the approval; compare them with the approved snapshot; re-run the decision gate using current time; confirm no new human decision or stale validation; and independently re-verify the receipt. A ready result is an exact task envelope, not dispatch. The present adapter can emit `PRELAUNCH_READY` only in isolated synthetic tests with an injected verifier. Its live `--prelaunch` invocation has no trusted receipt and must return `STOP: HOLD`. No launcher, external API, schedule, or task-start capability is provided.
+
+## GitHub-comment GREEN pilot (verification only)
+
+The single proposed pilot is `routing-doc-consistency-audit`: read the routing docs and automation scripts, report contradictions, and make **zero** writes, commits, pushes, or dispatches. It is limited to one task and 15 minutes. The current `NEXT_TASK.md` remains HOLD/AMBER; this pilot is only an isolated GREEN fixture, not an approved live task. Any eventual launcher must enforce a read-only filesystem even though the existing `allowed_files` field lists the files in scope.
+
+The designated human's numeric GitHub user ID, issue number, and comment ID must come from trusted controller configuration—not an issue body, repo file, environment guess, or Git author. The controller fetches that exact issue comment from the authenticated GitHub API under `unukaaa/fud-ai`; it checks the numeric author ID, human `User` type, repository/issue/comment URLs, creation time, REST update time, and GraphQL `lastEditedAt`. Missing/edited comments, API errors, or uncertain metadata fail closed. It re-fetches the comment during the final pre-launch gate. A local JSON copy or webhook payload alone is not an approval.
+
+The human approval comment must contain exactly these seven lines, with no Markdown fence, extra prose, or `true` permissions (one final newline is optional):
+
+```text
+FOOD-AI GREEN APPROVAL v1
+task_id: routing-doc-consistency-audit
+task_digest: <64 lowercase hex characters for the exact GREEN envelope>
+head: <40 lowercase hex characters for current main HEAD>
+expires_at: <UTC ISO-8601 timestamp, no later than 15 minutes after comment creation>
+commit_allowed: false
+push_allowed: false
+```
+
+The verifier derives a one-task, 15-minute, no-commit/no-push plan from the unedited comment and hands its authenticated receipt to the existing pre-launch recheck. `APPROVAL_VERIFIED` and `PRELAUNCH_READY` are dry-run states only. No designated approver or issue/comment is configured, no real GitHub approval has been fetched, and no launcher exists. A separate explicit authorization and live authentication proof are required before one harmless real GREEN launch.
