@@ -41,7 +41,7 @@ Immediately before any future launch, re-read HEAD, Git/protected working-tree s
 
 ## GitHub-comment GREEN pilot (verification only)
 
-The single proposed pilot is `routing-doc-consistency-audit`: read the routing docs and automation scripts, report contradictions, and make **zero** writes, commits, pushes, or dispatches. It is limited to one task and 15 minutes. The current `NEXT_TASK.md` remains HOLD/AMBER; this pilot is only an isolated GREEN fixture, not an approved live task. Any eventual launcher must enforce a read-only filesystem even though the existing `allowed_files` field lists the files in scope.
+The single proposed pilot is `routing-doc-consistency-audit`: read the routing docs and automation scripts, report contradictions, and make **zero** writes, commits, pushes, or dispatches. `NEXT_TASK.md` records `read_only: true`, one task, and 15 minutes as digest-bound limits; the listed `allowed_files` are inspection scope, not write permission. This GREEN checkpoint is eligible for approval only. Any eventual launcher must enforce a read-only filesystem; the current scripts cannot launch it.
 
 The designated human's numeric GitHub user ID, issue number, and comment ID must come from trusted controller configuration—not an issue body, repo file, environment guess, or Git author. The controller fetches that exact issue comment from the authenticated GitHub API under `unukaaa/fud-ai`; it checks the numeric author ID, human `User` type, repository/issue/comment URLs, creation time, REST update time, and GraphQL `lastEditedAt`. Missing/edited comments, API errors, or uncertain metadata fail closed. It re-fetches the comment during the final pre-launch gate. A local JSON copy or webhook payload alone is not an approval.
 

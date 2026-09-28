@@ -81,11 +81,15 @@ module AutomationDecision
   def self.task!(doc)
     data = doc.data
     required = %w[schema_version state risk_lane title goal allowed_files forbidden_files validation_required auto_start_allowed human_decision_required commit_allowed push_allowed stop_conditions]
-    keys!(data, required, %w[task_id], 'task')
+    keys!(data, required, %w[task_id read_only max_tasks max_duration_minutes], 'task')
     raise Invalid, 'task: unsupported schema' unless data['schema_version'] == 1
     raise Invalid, 'task: invalid status/lane' unless %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['state']) && %w[GREEN AMBER RED].include?(data['risk_lane'])
     raise Invalid, 'task: missing title/goal' unless %w[title goal].all? { |k| data[k].is_a?(String) && !data[k].strip.empty? }
     raise Invalid, 'task: invalid booleans' unless %w[auto_start_allowed human_decision_required commit_allowed push_allowed].all? { |k| data[k] == true || data[k] == false }
+    raise Invalid, 'task: invalid read_only' if data.key?('read_only') && data['read_only'] != true
+    %w[max_tasks max_duration_minutes].each do |key|
+      raise Invalid, "task: invalid #{key}" if data.key?(key) && (!data[key].is_a?(Integer) || data[key] <= 0)
+    end
     %w[allowed_files forbidden_files validation_required stop_conditions].each do |key|
       raise Invalid, "task: invalid #{key}" unless data[key].is_a?(Array) && !data[key].empty? && data[key].all? { |v| v.is_a?(String) && !v.strip.empty? }
     end
@@ -205,9 +209,11 @@ module AutomationDecision
     now = Time.now.utc
     green_h = fixture(handoff.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true), handoff.body)
     green_t = fixture(task.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links', 'goal' => 'Read the routing documentation and report broken local links.', 'validation_required' => ['Record the checked links and an exit-zero validation result.']), task.body)
+    hold_h = fixture(handoff.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), handoff.body)
+    hold_t = fixture(task.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), task.body)
     plan = { 'schema_version' => 1, 'approved_tasks' => [{ 'id' => 'safe-doc-audit', 'sha256' => task_digest(green_t.data) }], 'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => 15, 'started_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601, 'commit_allowed' => false, 'push_allowed' => false }
     cases = {
-      'current_hold' => [handoff, task, nil, 'STOP: HOLD'],
+      'synthetic_hold' => [hold_h, hold_t, nil, 'STOP: HOLD'],
       'synthetic_green' => [green_h, green_t, plan, 'READY_FOR_APPROVAL'],
       'no_self_referential_validation' => [green_h, green_t, nil, 'READY_FOR_APPROVAL'],
       'auto_start_false' => [green_h, Doc.new(green_t.data.merge('auto_start_allowed' => false), green_t.body), plan, 'STOP: HOLD'],

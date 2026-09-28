@@ -4,7 +4,7 @@ require_relative 'automation_dispatch'
 
 module AutomationGitHubApproval
   PILOT_ID = 'routing-doc-consistency-audit'
-  PILOT_TITLE = 'Audit routing documentation consistency'
+  PILOT_TITLE = 'Routing documentation consistency audit'
   PILOT_GOAL = 'Read the routing policy, handoff, next-task envelope, and automation scripts; report inconsistencies without editing files, committing, pushing, or dispatching.'
   PILOT_FILES = %w[
     AUTOMATION_POLICY.md CURRENT_HANDOFF.md NEXT_TASK.md
@@ -53,6 +53,7 @@ module AutomationGitHubApproval
     task['task_id'] == PILOT_ID && task['title'] == PILOT_TITLE && task['goal'] == PILOT_GOAL &&
       task['allowed_files'] == PILOT_FILES && task['forbidden_files'] == PILOT_FORBIDDEN &&
       task['validation_required'] == PILOT_VALIDATION && task['stop_conditions'] == PILOT_STOP &&
+      task['read_only'] == true && task['max_tasks'] == 1 && task['max_duration_minutes'] == MAX_MINUTES &&
       task['commit_allowed'] == false && task['push_allowed'] == false
   end
 

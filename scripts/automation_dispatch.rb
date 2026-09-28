@@ -136,6 +136,8 @@ module AutomationDispatch
     task = input[:task].data
     return 'task not exactly authorized' unless approval['approved_tasks'].length == 1 &&
       approval['approved_tasks'][0] == { 'id' => task['task_id'], 'sha256' => AutomationDecision.task_digest(task) }
+    return 'approval exceeds task bounds' if (task['max_tasks'] && approval['max_tasks'] != task['max_tasks']) ||
+      (task['max_duration_minutes'] && approval['max_duration_minutes'] != task['max_duration_minutes'])
     return 'task bound exhausted' unless approval['tasks_completed'] < approval['max_tasks']
     started = Time.iso8601(approval['started_at'])
     expires = Time.iso8601(approval['expires_at'])
@@ -222,6 +224,7 @@ module AutomationDispatch
       'task_digest' => AutomationDecision.task_digest(task),
       'approval_digest' => digest(approval), 'validation_receipt_digest' => digest(validation_receipt),
       'commit_allowed' => task['commit_allowed'], 'push_allowed' => task['push_allowed'],
+      'read_only' => task['read_only'] == true,
       'approval_source_ref' => receipt['source_ref'], 'approval_binding_digest' => receipt['binding_digest'],
       'validation_source_ref' => validation_receipt['source_ref']
     }
@@ -256,8 +259,12 @@ module AutomationDispatch
     }
     git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
     green = { policy: live[:policy], handoff: handoff, task: task, approval: approval, git: git }
+    hold = green.merge(
+      handoff: AutomationDecision.fixture(handoff.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), handoff.body),
+      task: AutomationDecision.fixture(task.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), task.body)
+    )
     cases = {
-      'live_hold' => [live, nil, 'STOP: HOLD'],
+      'synthetic_hold' => [hold, nil, 'STOP: HOLD'],
       'valid_green' => [green, nil, 'READY_FOR_APPROVAL'],
       'stale_head' => [green, green.merge(git: git.merge('head' => 'b' * 40)), 'STOP: HOLD'],
       'changed_task_digest' => [green, green.merge(task: AutomationDecision::Doc.new(task.data.merge('goal' => 'Changed goal'), task.body)), 'STOP: HOLD'],
