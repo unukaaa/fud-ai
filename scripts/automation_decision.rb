@@ -102,14 +102,19 @@ module AutomationDecision
   end
 
   def self.live_git
-    raw = git_value('status', '--porcelain=v1', '-z', '--untracked-files=all')
-    entries = raw.split("\0").map { |line| [line[0, 2], line[3..]] }
+    raw, status = Open3.capture2e('git', '-C', ROOT, 'status', '--porcelain=v1', '-z', '--untracked-files=all')
+    raise Invalid, 'git status: unavailable' unless status.success?
+    entries = porcelain_entries(raw)
     {
       'branch' => git_value('branch', '--show-current'),
       'head' => git_value('rev-parse', 'HEAD'),
       'remote_head' => git_value('rev-parse', 'origin/main'),
       'entries' => entries
     }
+  end
+
+  def self.porcelain_entries(raw)
+    raw.split("\0").map { |line| [line[0, 2], line[3..]] }
   end
 
   def self.matches?(pattern, path)
@@ -246,7 +251,10 @@ module AutomationDecision
         puts JSON.generate('case' => name, 'decision' => 'STOP: HOLD', 'reasons' => [e.message], 'dispatched' => false)
       end
     end
-    puts "self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 2} failures=#{failures} dispatched=0"
+    preserved = porcelain_entries(" M ios/calorietracker/Info.plist\0")
+    failures += 1 unless preserved == [[' M', 'ios/calorietracker/Info.plist']]
+    puts JSON.generate('case' => 'unstaged_porcelain_status', 'passed' => preserved == [[' M', 'ios/calorietracker/Info.plist']], 'dispatched' => false)
+    puts "self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 3} failures=#{failures} dispatched=0"
     exit(failures.zero? ? 0 : 1)
   end
 end
