@@ -13,7 +13,7 @@ validation_evidence_ref: "#validation"
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`; GitHub approval-verifier checkpoint `1600f0886` is pushed to `origin/main`. Search Food and Review Food remain on HOLD.
+- Branch: `main`; two-stage automation-contract checkpoint `5f6c0a9c5c33575824a45822eab02963ab12aa5b` is pushed to `origin/main`. Search Food and Review Food remain on HOLD.
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
@@ -76,12 +76,12 @@ validation_evidence_ref: "#validation"
 - Pushed decision-layer commit: `7e11b1309`; dry-run dispatcher: `381299e19`; pre-launch contract: `6e2ccba0b` (`AUTOMATION_POLICY.md`, `scripts/automation_dispatch.rb`, `CURRENT_HANDOFF.md`). No app/test file was included in the pre-launch commit.
 - The pre-launch contract is committed and pushed. This handoff-only follow-up records its SHA; no launcher or task dispatch was added.
 - GitHub approval verifier checkpoint `1600f0886` is pushed (`AUTOMATION_POLICY.md`, `CURRENT_HANDOFF.md`, `scripts/automation_github_approval.rb`). This handoff-only follow-up records its SHA. No real GitHub comment was fetched and no task was dispatched.
-- Current two-stage contract changes to `AUTOMATION_POLICY.md`, this handoff, and three automation scripts are local and uncommitted. `NEXT_TASK.md` remains unchanged; no approval comment or task was dispatched.
+- Two-stage contract commit `5f6c0a9c5c33575824a45822eab02963ab12aa5b` is pushed (`AUTOMATION_POLICY.md`, this handoff, and the three automation scripts). This handoff-only follow-up records its SHA. `NEXT_TASK.md` remains unchanged; no approval comment or task was dispatched.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
-Review and checkpoint this two-stage contract without changing the current HOLD/AMBER task. Then prepare one exact GREEN routing pilot at a stable pushed HEAD; obtain fresh external validation and human approval separately. Do not launch from current HOLD/AMBER; Search Food / Review Food V2 remain on HOLD.
+Prepare one exact GREEN routing pilot at a stable pushed HEAD; obtain fresh external validation and human approval separately. Do not launch from current HOLD/AMBER; Search Food / Review Food V2 remain on HOLD.
 
 ## Human decision required
 None for this contract validation. A future live pilot still needs separately trusted validation, designated authenticated GitHub approval, and explicit launch authorization. Test infrastructure and native hit testing remain on HOLD.
