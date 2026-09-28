@@ -270,18 +270,20 @@ module AutomationDecision
   end
 end
 
-if ARGV == ['--self-test']
-  AutomationDecision.self_test
-elsif ARGV.empty? || (ARGV.length == 2 && ARGV.first == '--approval')
-  begin
-    approval = ARGV.empty? ? nil : AutomationDecision.read_approval(ARGV.last)
-    output = AutomationDecision.read_live(approval)
-  rescue AutomationDecision::Invalid => e
-    output = AutomationDecision.result({}, [e.message])
+if __FILE__ == $PROGRAM_NAME
+  if ARGV == ['--self-test']
+    AutomationDecision.self_test
+  elsif ARGV.empty? || (ARGV.length == 2 && ARGV.first == '--approval')
+    begin
+      approval = ARGV.empty? ? nil : AutomationDecision.read_approval(ARGV.last)
+      output = AutomationDecision.read_live(approval)
+    rescue AutomationDecision::Invalid => e
+      output = AutomationDecision.result({}, [e.message])
+    end
+    puts output['decision']
+    puts JSON.pretty_generate(output)
+  else
+    warn 'Usage: ruby scripts/automation_decision.rb [--self-test | --approval TRUSTED_PLAN.yml]'
+    exit 2
   end
-  puts output['decision']
-  puts JSON.pretty_generate(output)
-else
-  warn 'Usage: ruby scripts/automation_decision.rb [--self-test | --approval TRUSTED_PLAN.yml]'
-  exit 2
 end
