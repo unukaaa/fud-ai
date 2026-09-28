@@ -3,6 +3,7 @@ schema_version: 1
 state: COMPLETE
 risk_lane: GREEN
 task_id: routing-doc-consistency-audit
+execution_target: cloud_clean_checkout
 title: "Routing documentation consistency audit"
 goal: "Read the routing policy, handoff, next-task envelope, and automation scripts; report inconsistencies without editing files, committing, pushing, or dispatching."
 read_only: true
@@ -32,4 +33,4 @@ stop_conditions:
 
 # Next task — advisory only
 
-This GREEN pilot is eligible for approval, not launch. The listed files are the inspection scope, not write permission; the pilot itself must make zero writes, Git mutations, or dispatches. Search Food and Review Food remain on HOLD. A trusted external validation receipt and separate authenticated human approval bound to the final pushed HEAD and task digest are required before any pre-launch readiness decision.
+This GREEN pilot targets a clean cloud checkout of the exact approved remote HEAD. The listed files are inspection scope, not write permission; the pilot itself must make zero writes, Git mutations, or dispatches. Unrelated local Mac edits are not cloud-runner state. Search Food and Review Food remain on HOLD. A trusted external validation receipt and separate authenticated human approval bound to a future pushed HEAD and task digest are required before any pre-launch readiness decision.

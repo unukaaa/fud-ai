@@ -48,7 +48,8 @@ module AutomationDispatch
       'HEAD' => git['head'],
       'origin_main' => git['remote_head'],
       'branch' => git['branch'],
-      'protected_file_state' => digest(working_tree_state(git))
+      'protected_file_state' => task.data['execution_target'] == 'local_working_tree' ?
+        digest(working_tree_state(git)) : nil
     }
   end
 
@@ -62,11 +63,11 @@ module AutomationDispatch
   def self.approval_binding(input)
     task = input[:task].data
     approval = input[:approval]
-    {
+    binding = {
       'task_id' => task['task_id'],
       'task_digest' => AutomationDecision.task_digest(task),
       'head' => input[:git]['head'],
-      'working_tree_digest' => digest(working_tree_state(input[:git])),
+      'execution_target' => task['execution_target'],
       'allowed_files' => task['allowed_files'],
       'forbidden_files' => task['forbidden_files'],
       'validation_receipt_digest' => digest(input[:validation_receipt]),
@@ -77,6 +78,8 @@ module AutomationDispatch
       'approval_commit_allowed' => approval['commit_allowed'],
       'approval_push_allowed' => approval['push_allowed']
     }
+    binding['working_tree_digest'] = digest(working_tree_state(input[:git])) if task['execution_target'] == 'local_working_tree'
+    binding
   end
 
   def self.source_verified?(source_verifier, receipt)
@@ -100,9 +103,13 @@ module AutomationDispatch
 
   def self.validation_reason(receipt, input, verifier:, now:)
     return 'missing trusted external validation receipt' unless receipt.is_a?(Hash)
-    required = %w[schema_version source_kind source_ref head task_id task_digest results working_tree_digest max_tasks tasks_completed max_duration_minutes validated_at expires_at]
+    task = input[:task].data
+    target = task['execution_target']
+    required = %w[schema_version source_kind source_ref head task_id task_digest execution_target results max_tasks tasks_completed max_duration_minutes validated_at expires_at]
+    required += target == 'cloud_clean_checkout' ? %w[checkout_head checkout_clean] : %w[working_tree_digest]
     return 'invalid external validation receipt' unless receipt.keys.sort == required.sort &&
       receipt['schema_version'] == 1 && receipt['source_kind'] == 'trusted_controller_validation' &&
+      receipt['execution_target'] == target &&
       receipt['source_ref'].is_a?(String) && !receipt['source_ref'].strip.empty? &&
       receipt['results'].is_a?(Hash) && receipt['results'].keys.sort == %w[complete evidence passing] &&
       receipt['results']['complete'] == true && receipt['results']['passing'] == true &&
@@ -111,11 +118,14 @@ module AutomationDispatch
       receipt['tasks_completed'].is_a?(Integer) && receipt['tasks_completed'] >= 0 &&
       receipt['max_duration_minutes'].is_a?(Integer) && receipt['max_duration_minutes'].positive?
     return 'validation source not independently verified' unless source_verified?(verifier, receipt)
-    task = input[:task].data
     git = input[:git]
     return 'validation receipt binding changed' unless receipt['head'] == git['head'] &&
-      receipt['task_id'] == task['task_id'] && receipt['task_digest'] == AutomationDecision.task_digest(task) &&
-      receipt['working_tree_digest'] == digest(working_tree_state(git))
+      receipt['task_id'] == task['task_id'] && receipt['task_digest'] == AutomationDecision.task_digest(task)
+    if target == 'cloud_clean_checkout'
+      return 'validation cloud checkout binding changed' unless receipt['checkout_head'] == git['head'] && receipt['checkout_clean'] == true
+    else
+      return 'validation local working tree changed' unless receipt['working_tree_digest'] == digest(working_tree_state(git))
+    end
     approval = input[:approval]
     return 'validation bounds differ from human approval' unless approval.is_a?(Hash) &&
       %w[max_tasks tasks_completed max_duration_minutes].all? { |key| receipt[key] == approval[key] }
@@ -182,7 +192,7 @@ module AutomationDispatch
 
   def self.prelaunch(input, receipt:, source_verifier: nil, validation_receipt: nil,
                      validation_verifier: nil, reread: -> { input }, clock: -> { Time.now.utc },
-                     remote_head_reader: -> { remote_main_head })
+                     remote_head_reader: -> { remote_main_head }, runner_git_reader: nil)
     initial = dry_run(input, reread: reread, now: clock.call)
     return stop(initial['reasons']) unless initial['status'] == 'READY_FOR_APPROVAL'
 
@@ -214,10 +224,16 @@ module AutomationDispatch
     fresh_head = remote_head_reader.call
     return stop(['fresh remote HEAD differs from approved HEAD']) unless fresh_head == current[:git]['head']
     task = current[:task].data
+    if task['execution_target'] == 'cloud_clean_checkout'
+      return stop(['cloud runner checkout not verified']) unless runner_git_reader.respond_to?(:call)
+      runner_git = runner_git_reader.call
+      return stop(['cloud runner checkout is dirty or at wrong HEAD']) unless runner_git.is_a?(Hash) &&
+        runner_git['head'] == fresh_head && runner_git['entries'] == []
+    end
     approval = current[:approval]
     envelope = {
       'task_id' => task['task_id'], 'title' => task['title'], 'goal' => task['goal'],
-      'head' => fresh_head, 'allowed_files' => task['allowed_files'],
+      'head' => fresh_head, 'execution_target' => task['execution_target'], 'allowed_files' => task['allowed_files'],
       'forbidden_files' => task['forbidden_files'], 'validation_required' => task['validation_required'],
       'validation_results' => validation_receipt['results'], 'stop_conditions' => task['stop_conditions'],
       'bounds' => approval.slice('max_tasks', 'tasks_completed', 'max_duration_minutes', 'started_at', 'expires_at'),
@@ -246,6 +262,7 @@ module AutomationDispatch
     ), live[:handoff].body)
     task = AutomationDecision.fixture(live[:task].data.merge(
       'state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true,
+      'execution_target' => 'local_working_tree',
       'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links',
       'goal' => 'Read routing documentation and report broken local links.',
       'validation_required' => ['Record checked links and an exit-zero result.']
@@ -259,6 +276,7 @@ module AutomationDispatch
     }
     git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
     green = { policy: live[:policy], handoff: handoff, task: task, approval: approval, git: git }
+    cloud = green.merge(task: AutomationDecision.fixture(task.data.merge('execution_target' => 'cloud_clean_checkout'), task.body))
     hold = green.merge(
       handoff: AutomationDecision.fixture(handoff.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), handoff.body),
       task: AutomationDecision.fixture(task.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), task.body)
@@ -276,12 +294,14 @@ module AutomationDispatch
       'protected_file_conflict' => [green.merge(git: git.merge('entries' => [['M ', AutomationDecision::PROTECTED.first]])), nil, 'STOP: HOLD'],
       'embedded_validation_rejected' => [green.merge(handoff: AutomationDecision::Doc.new(handoff.data.merge('validation' => { 'head' => head }), handoff.body)), nil, 'STOP: HOLD']
     }
+    cases['cloud_mac_edit_changes'] = [cloud, cloud.merge(git: git.merge('entries' => [[' M', AutomationDecision::PROTECTED.first]])), 'READY_FOR_APPROVAL']
+    cases['cloud_routing_edit'] = [cloud.merge(git: git.merge('entries' => [[' M', 'NEXT_TASK.md']])), nil, 'STOP: HOLD']
     failures = 0
     cases.each do |name, (initial, changed, expected)|
       result = dry_run(initial, reread: -> { changed || initial }, now: now)
       failures += 1 unless result['status'] == expected && result['dispatched'] == false &&
         result['dispatch_envelope'].nil? &&
-        (expected == 'READY_FOR_APPROVAL' ? result['task_digest'] == AutomationDecision.task_digest(task.data) : true)
+        (expected == 'READY_FOR_APPROVAL' ? result['task_digest'] == AutomationDecision.task_digest(initial[:task].data) : true)
       puts JSON.generate({ 'case' => name }.merge(result))
     end
     puts "dispatcher_self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length} failures=#{failures} dispatched=0"
@@ -297,6 +317,7 @@ module AutomationDispatch
     ), live[:handoff].body)
     task = AutomationDecision.fixture(live[:task].data.merge(
       'state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true,
+      'execution_target' => 'local_working_tree',
       'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links',
       'goal' => 'Read routing documentation and report broken local links.',
       'validation_required' => ['Record checked links and an exit-zero result.']
@@ -313,6 +334,7 @@ module AutomationDispatch
     validation = {
       'schema_version' => 1, 'source_kind' => 'trusted_controller_validation',
       'source_ref' => 'synthetic-controller-run', 'head' => head,
+      'execution_target' => 'local_working_tree',
       'task_id' => task.data['task_id'], 'task_digest' => AutomationDecision.task_digest(task.data),
       'results' => { 'complete' => true, 'passing' => true, 'evidence' => 'synthetic exit-zero checks' },
       'working_tree_digest' => digest(working_tree_state(git)),
@@ -382,6 +404,39 @@ module AutomationDispatch
       failures += 1 unless result['status'] == expected && result['dispatched'] == false && valid_envelope
       puts JSON.generate({ 'case' => name }.merge(result))
     end
+    cloud_task = AutomationDecision.fixture(task.data.merge('execution_target' => 'cloud_clean_checkout'), task.body)
+    cloud_approval = approval.merge('approved_tasks' => [{ 'id' => cloud_task.data['task_id'], 'sha256' => AutomationDecision.task_digest(cloud_task.data) }])
+    cloud_git = git.merge('entries' => [[' M', AutomationDecision::PROTECTED.first]])
+    cloud = green.merge(task: cloud_task, approval: cloud_approval, git: cloud_git)
+    cloud_validation = validation.reject { |key, _| key == 'working_tree_digest' }.merge(
+      'execution_target' => 'cloud_clean_checkout', 'task_digest' => AutomationDecision.task_digest(cloud_task.data),
+      'checkout_head' => head, 'checkout_clean' => true
+    )
+    cloud_receipt = { 'source_kind' => 'authenticated_user_approval', 'source_ref' => 'synthetic-cloud-approval',
+                      'approval_digest' => digest(cloud_approval),
+                      'binding_digest' => digest(approval_binding(cloud.merge(validation_receipt: cloud_validation))) }
+    cloud_cases = {
+      'cloud_clean_runner' => [cloud, cloud, -> { head }, -> { { 'head' => head, 'entries' => [] } }, 'PRELAUNCH_READY'],
+      'cloud_dirty_runner' => [cloud, cloud, -> { head }, -> { { 'head' => head, 'entries' => [[' M', 'NEXT_TASK.md']] } }, 'STOP: HOLD'],
+      'cloud_runner_wrong_head' => [cloud, cloud, -> { head }, -> { { 'head' => 'b' * 40, 'entries' => [] } }, 'STOP: HOLD'],
+      'cloud_stale_remote_head' => [cloud, cloud, -> { 'b' * 40 }, -> { { 'head' => head, 'entries' => [] } }, 'STOP: HOLD'],
+      'cloud_missing_runner_check' => [cloud, cloud, -> { head }, nil, 'STOP: HOLD'],
+      'cloud_mac_edit_changed' => [cloud, cloud.merge(git: git.merge('entries' => [[' M', AutomationDecision::PROTECTED.last]])), -> { head }, -> { { 'head' => head, 'entries' => [] } }, 'PRELAUNCH_READY'],
+      'changed_execution_target' => [cloud.merge(task: task), cloud.merge(task: task), -> { head }, -> { { 'head' => head, 'entries' => [] } }, 'STOP: HOLD']
+    }
+    cloud_cases['cloud_validation_not_clean'] = [cloud, cloud, -> { head }, -> { { 'head' => head, 'entries' => [] } }, 'STOP: HOLD']
+    cloud_cases.each do |name, (initial, current, remote_reader, runner_reader, expected)|
+      evidence = name == 'cloud_validation_not_clean' ? cloud_validation.merge('checkout_clean' => false) : cloud_validation
+      result = prelaunch(initial, receipt: cloud_receipt, source_verifier: ->(candidate) { candidate == cloud_receipt },
+                         validation_receipt: evidence,
+                         validation_verifier: ->(candidate) { candidate == evidence },
+                         reread: -> { current }, clock: -> { now }, remote_head_reader: remote_reader,
+                         runner_git_reader: runner_reader)
+      passed = result['status'] == expected && result['dispatched'] == false &&
+        (expected == 'PRELAUNCH_READY' ? result.dig('dispatch_envelope', 'execution_target') == 'cloud_clean_checkout' : result['dispatch_envelope'].nil?)
+      failures += 1 unless passed
+      puts JSON.generate({ 'case' => name }.merge(result))
+    end
     clock_calls = 0
     expiry_clock = -> { clock_calls += 1; clock_calls == 1 ? now : now + 601 }
     expired_during_recheck = prelaunch(green, receipt: receipt, source_verifier: verifier,
@@ -403,7 +458,7 @@ module AutomationDispatch
       failures += 1 if unchanged
       puts JSON.generate('case' => 'same_status_content_changed', 'detected' => !unchanged, 'dispatched' => false)
     end
-    puts "prelaunch_self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 2} failures=#{failures} dispatched=0"
+    puts "prelaunch_self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + cloud_cases.length + 2} failures=#{failures} dispatched=0"
     exit(failures.zero? ? 0 : 1)
   end
 end

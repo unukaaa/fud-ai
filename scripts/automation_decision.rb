@@ -19,6 +19,7 @@ module AutomationDecision
     ios/calorietracker/Views/FoodResultView.swift
     ios/calorietrackerUITests/SearchFoodAcceptanceUITests.swift
   ].freeze
+  ROUTING_FILES = %w[AUTOMATION_POLICY.md CURRENT_HANDOFF.md NEXT_TASK.md].freeze
   Doc = Struct.new(:data, :body)
 
   class Invalid < StandardError; end
@@ -80,10 +81,11 @@ module AutomationDecision
 
   def self.task!(doc)
     data = doc.data
-    required = %w[schema_version state risk_lane title goal allowed_files forbidden_files validation_required auto_start_allowed human_decision_required commit_allowed push_allowed stop_conditions]
+    required = %w[schema_version state risk_lane title goal execution_target allowed_files forbidden_files validation_required auto_start_allowed human_decision_required commit_allowed push_allowed stop_conditions]
     keys!(data, required, %w[task_id read_only max_tasks max_duration_minutes], 'task')
     raise Invalid, 'task: unsupported schema' unless data['schema_version'] == 1
     raise Invalid, 'task: invalid status/lane' unless %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['state']) && %w[GREEN AMBER RED].include?(data['risk_lane'])
+    raise Invalid, 'task: invalid execution_target' unless %w[cloud_clean_checkout local_working_tree].include?(data['execution_target'])
     raise Invalid, 'task: missing title/goal' unless %w[title goal].all? { |k| data[k].is_a?(String) && !data[k].strip.empty? }
     raise Invalid, 'task: invalid booleans' unless %w[auto_start_allowed human_decision_required commit_allowed push_allowed].all? { |k| data[k] == true || data[k] == false }
     raise Invalid, 'task: invalid read_only' if data.key?('read_only') && data['read_only'] != true
@@ -131,6 +133,12 @@ module AutomationDecision
     return 'allowed path intersects forbidden/protected files' if allowed.any? { |path| PROTECTED.include?(path) || forbidden.any? { |glob| matches?(glob, path) } }
     return 'wrong branch or unsynchronized HEAD' unless git['branch'] == 'main' && git['head'] == git['remote_head']
     return 'invalid Git state' unless git['entries'].is_a?(Array)
+    if task['execution_target'] == 'cloud_clean_checkout'
+      return 'routing checkpoint differs from HEAD' if git['entries'].any? do |_status, path|
+        ROUTING_FILES.include?(path) || path.start_with?('scripts/automation_')
+      end
+      return nil
+    end
     git['entries'].each do |status, path|
       return 'staged, conflicted, or renamed Git state' unless status == ' M' || status == '??'
       return 'unexpected working-tree change' unless forbidden.any? { |glob| matches?(glob, path) }
@@ -213,7 +221,7 @@ module AutomationDecision
     git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
     now = Time.now.utc
     green_h = fixture(handoff.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true), handoff.body)
-    green_t = fixture(task.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links', 'goal' => 'Read the routing documentation and report broken local links.', 'validation_required' => ['Record the checked links and an exit-zero validation result.']), task.body)
+    green_t = fixture(task.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'execution_target' => 'local_working_tree', 'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links', 'goal' => 'Read the routing documentation and report broken local links.', 'validation_required' => ['Record the checked links and an exit-zero validation result.']), task.body)
     hold_h = fixture(handoff.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), handoff.body)
     hold_t = fixture(task.data.merge('state' => 'HOLD', 'risk_lane' => 'AMBER', 'auto_start_allowed' => false), task.body)
     plan = { 'schema_version' => 1, 'approved_tasks' => [{ 'id' => 'safe-doc-audit', 'sha256' => task_digest(green_t.data) }], 'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => 15, 'started_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601, 'commit_allowed' => false, 'push_allowed' => false }
@@ -254,7 +262,22 @@ module AutomationDecision
     preserved = porcelain_entries(" M ios/calorietracker/Info.plist\0")
     failures += 1 unless preserved == [[' M', 'ios/calorietracker/Info.plist']]
     puts JSON.generate('case' => 'unstaged_porcelain_status', 'passed' => preserved == [[' M', 'ios/calorietracker/Info.plist']], 'dispatched' => false)
-    puts "self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 3} failures=#{failures} dispatched=0"
+    cloud_t = fixture(green_t.data.merge('execution_target' => 'cloud_clean_checkout'), green_t.body)
+    target_cases = {
+      'cloud_ignores_unrelated_mac_edit' => [cloud_t, git.merge('entries' => [[' M', PROTECTED.first]]), 'READY_FOR_APPROVAL'],
+      'cloud_rejects_dirty_routing_file' => [cloud_t, git.merge('entries' => [[' M', ROUTING_FILES.first]]), 'STOP: HOLD'],
+      'local_rejects_unrelated_edit' => [green_t, git.merge('entries' => [[' M', 'unrelated.txt']]), 'STOP: HOLD'],
+      'invalid_execution_target' => [fixture(green_t.data.merge('execution_target' => 'unknown'), green_t.body), git, 'STOP: HOLD']
+    }
+    target_cases.each do |name, (candidate, state, expected)|
+      actual = decide(policy, green_h, candidate, git: state, now: now)
+      failures += 1 unless actual['decision'] == expected && actual['dispatched'] == false
+      puts JSON.generate({ 'case' => name }.merge(actual))
+    end
+    changed_digest = task_digest(green_t.data) != task_digest(cloud_t.data)
+    failures += 1 unless changed_digest
+    puts JSON.generate('case' => 'execution_target_changes_digest', 'passed' => changed_digest, 'dispatched' => false)
+    puts "self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 8} failures=#{failures} dispatched=0"
     exit(failures.zero? ? 0 : 1)
   end
 end

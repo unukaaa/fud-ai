@@ -50,7 +50,8 @@ module AutomationGitHubApproval
   end
 
   def self.pilot_task?(task)
-    task['task_id'] == PILOT_ID && task['title'] == PILOT_TITLE && task['goal'] == PILOT_GOAL &&
+    task['task_id'] == PILOT_ID && task['execution_target'] == 'cloud_clean_checkout' &&
+      task['title'] == PILOT_TITLE && task['goal'] == PILOT_GOAL &&
       task['allowed_files'] == PILOT_FILES && task['forbidden_files'] == PILOT_FORBIDDEN &&
       task['validation_required'] == PILOT_VALIDATION && task['stop_conditions'] == PILOT_STOP &&
       task['read_only'] == true && task['max_tasks'] == 1 && task['max_duration_minutes'] == MAX_MINUTES &&
@@ -101,7 +102,7 @@ module AutomationGitHubApproval
   def self.verify_and_prelaunch(input, client:, repo:, issue_number:, comment_id:, approver_id:,
                                 validation_receipt: nil, validation_verifier: nil,
                                 reread: -> { input }, clock: -> { Time.now.utc },
-                                remote_head_reader: -> { AutomationDispatch.remote_main_head })
+                                remote_head_reader: -> { AutomationDispatch.remote_main_head }, runner_git_reader: nil)
     return stop('pilot task is not the exact read-only specification') unless pilot_task?(input[:task].data)
     return stop('missing trusted external validation receipt') unless validation_receipt.is_a?(Hash)
     return stop('GitHub approval source is not designated') unless repo == REPO &&
@@ -134,7 +135,8 @@ module AutomationGitHubApproval
                                           validation_receipt: validation_receipt,
                                           validation_verifier: validation_verifier,
                                           reread: current_input, clock: clock,
-                                          remote_head_reader: remote_head_reader)
+                                          remote_head_reader: remote_head_reader,
+                                          runner_git_reader: runner_git_reader)
     result['dispatch_envelope']['read_only'] = true if result['status'] == 'PRELAUNCH_READY'
     result.merge('approval_status' => result['status'] == 'PRELAUNCH_READY' ? 'APPROVAL_VERIFIED' : 'STOP: HOLD',
                  'read_only' => result['status'] == 'PRELAUNCH_READY')
@@ -173,9 +175,10 @@ module AutomationGitHubApproval
     validation = {
       'schema_version' => 1, 'source_kind' => 'trusted_controller_validation',
       'source_ref' => 'synthetic-controller-run', 'head' => head,
+      'execution_target' => 'cloud_clean_checkout',
       'task_id' => PILOT_ID, 'task_digest' => AutomationDecision.task_digest(task.data),
       'results' => { 'complete' => true, 'passing' => true, 'evidence' => 'synthetic docs check' },
-      'working_tree_digest' => AutomationDispatch.digest(AutomationDispatch.working_tree_state(git)),
+      'checkout_head' => head, 'checkout_clean' => true,
       'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => MAX_MINUTES,
       'validated_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601
     }
@@ -213,7 +216,8 @@ module AutomationGitHubApproval
                                     issue_number: issue_number, comment_id: comment_id, approver_id: designated_id,
                                     validation_receipt: validation, validation_verifier: validation_verifier,
                                     reread: -> { candidate }, clock: -> { now },
-                                    remote_head_reader: -> { head })
+                                    remote_head_reader: -> { head },
+                                    runner_git_reader: -> { { 'head' => head, 'entries' => [] } })
       good = result['status'] == expected && result['dispatched'] == false &&
         (expected == 'PRELAUNCH_READY' ? result['approval_status'] == 'APPROVAL_VERIFIED' &&
           result['dispatch_envelope']['task_id'] == PILOT_ID &&
