@@ -110,13 +110,18 @@ final class CloudBackupService {
         guard status == .available else { throw CloudBackupError.iCloudUnavailable }
     }
 
-    func refreshCloudPresence() async {
-        do {
+    func refreshCloudPresence() async throws -> Bool {
+        return try await refreshCloudPresence(using: {
             try await checkAccount()
-            hasCloudBackup = try await fetchRecord() != nil
-        } catch {
-            hasCloudBackup = false
-        }
+            return try await fetchRecord() != nil
+        })
+    }
+
+    @discardableResult
+    func refreshCloudPresence(using lookup: () async throws -> Bool) async throws -> Bool {
+        let exists = try await lookup()
+        hasCloudBackup = exists
+        return exists
     }
 
     func backupNow(skipIfUnchanged: Bool = false) async throws {

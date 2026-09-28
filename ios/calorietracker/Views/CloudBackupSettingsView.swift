@@ -82,8 +82,7 @@ struct CloudBackupSettingsSection: View {
     private func turnOn() async {
         do {
             try await backup.checkAccount()
-            await backup.refreshCloudPresence()
-            if backup.hasCloudBackup {
+            if try await backup.refreshCloudPresence() {
                 showRestoreChoice = true
             } else {
                 try await backup.backupNow()
