@@ -85,6 +85,57 @@ struct DiaryImporterTests {
         #expect(result[0].id != result[1].id)
     }
 
+    @Test func malformedPayloadIsRejected() {
+        expectInvalidDocument(Data("{not JSON".utf8))
+    }
+
+    @Test func structurallyEmptyDiaryIsRejected() {
+        let empty = """
+        {
+          "export": {
+            "app": "Fud AI",
+            "format_version": "1.3",
+            "date_range": { "start": "2026-08-05", "end": "2026-08-05" }
+          },
+          "days": []
+        }
+        """
+        do {
+            _ = try DiaryImporter.parse(Data(empty.utf8))
+            Issue.record("Expected an empty diary to be rejected")
+        } catch DiaryImportError.noEntries {
+            // Expected: a valid envelope without food or water is unusable.
+        } catch {
+            Issue.record("Unexpected import error: \(error)")
+        }
+    }
+
+    @Test func inputAtSizeLimitPassesSizeGateButNotDocumentValidation() {
+        expectInvalidDocument(Data(repeating: 0x20, count: DiaryImporter.maximumFileSize))
+    }
+
+    @Test func inputOverSizeLimitIsRejectedBeforeParsing() {
+        do {
+            _ = try DiaryImporter.parse(Data(repeating: 0x20, count: DiaryImporter.maximumFileSize + 1))
+            Issue.record("Expected oversized diary to be rejected")
+        } catch DiaryImportError.fileTooLarge {
+            // Expected: size rejection takes precedence over invalid JSON.
+        } catch {
+            Issue.record("Unexpected import error: \(error)")
+        }
+    }
+
+    private func expectInvalidDocument(_ data: Data) {
+        do {
+            _ = try DiaryImporter.parse(data)
+            Issue.record("Expected invalid diary JSON to be rejected")
+        } catch DiaryImportError.invalidDocument {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected import error: \(error)")
+        }
+    }
+
     private var validDiary: String {
         """
         {
