@@ -74,24 +74,21 @@ struct ServingUnitEditor: View {
                 } label: {
                     HStack(spacing: 3) {
                         Text(selectedUnitLabel)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.78)
-                            .allowsTightening(true)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .layoutPriority(1)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(AppColors.calorie)
-                    .frame(width: 90, alignment: .trailing)
+                    .frame(minWidth: 90, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
-                .fixedSize(horizontal: true, vertical: false)
             } else {
                 Text(selectedUnitLabel)
                     .foregroundStyle(.secondary)
-                    .frame(
-                        width: selectedOption.normalizedUnit == "serving" ? 90 : 36,
-                        alignment: .leading
-                    )
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: 90, alignment: .leading)
+                    .layoutPriority(1)
             }
         }
     }

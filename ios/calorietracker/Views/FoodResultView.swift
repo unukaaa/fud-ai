@@ -155,6 +155,16 @@ struct FoodResultView: View {
                 && fatIsKnown)
     }
 
+    private var sourceCardTitle: Text {
+        if nutritionSource == "Verified restaurant nutrition" && !isFullyVerifiedSource {
+            return Text("Partially verified nutrition")
+        }
+        if nutritionSource == "AUSNUT Australia" && !isFullyVerifiedSource {
+            return Text("Partially AUSNUT nutrition")
+        }
+        return Text(nutritionSource)
+    }
+
     init(
         images: [UIImage] = [],
         emoji: String? = nil,
@@ -433,23 +443,6 @@ struct FoodResultView: View {
         servingSizeIsKnown = true
     }
 
-    private func reviewSummaryValue(_ label: String, _ value: String, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .accessibilityIdentifier("reviewFood.summary.\(label.lowercased())")
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(9)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-    }
-
     var body: some View {
         NavigationStack {
             ScrollViewReader { scrollProxy in
@@ -487,36 +480,18 @@ struct FoodResultView: View {
                             .scrollTargetBehavior(.viewAligned)
                             .listRowBackground(Color.clear)
                         }
-                    } else if let emoji {
-                        Section {
-                            HStack {
-                                Spacer()
-                                Text(emoji)
-                                    .font(.system(size: 80))
-                                Spacer()
-                            }
-                            .listRowBackground(Color.clear)
-                        }
                     }
 
                     Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .top, spacing: 8) {
-                                Text(name)
-                                    .font(.system(.title2, design: .rounded, weight: .bold))
-                                    .accessibilityIdentifier("reviewFood.name")
-                                Spacer()
-                                Text(sourceBadge)
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            HStack(spacing: 8) {
-                                reviewSummaryValue("Calories", "\(scaledCalories) cals", .primary)
-                                reviewSummaryValue("Protein", proteinIsKnown ? MacroValueFormatter.withUnit(scaledProtein) : "—", .green)
-                                reviewSummaryValue("Carbs", carbsAreKnown ? MacroValueFormatter.withUnit(scaledCarbs) : "—", Color(hex: 0x0A84FF))
-                                reviewSummaryValue("Fat", fatIsKnown ? MacroValueFormatter.withUnit(scaledFat) : "—", Color(hex: 0xFF9500))
-                            }
-                        }
+                        ReviewFoodSummary(
+                            name: name,
+                            emoji: images.isEmpty ? emoji : nil,
+                            sourceBadge: sourceBadge,
+                            calories: scaledCalories,
+                            protein: proteinIsKnown ? MacroValueFormatter.withUnit(scaledProtein) : "—",
+                            carbs: carbsAreKnown ? MacroValueFormatter.withUnit(scaledCarbs) : "—",
+                            fat: fatIsKnown ? MacroValueFormatter.withUnit(scaledFat) : "—"
+                        )
                         .listRowBackground(Color.clear)
                     }
 
@@ -533,7 +508,7 @@ struct FoodResultView: View {
                         HStack(spacing: 10) {
                             Image(systemName: isFullyVerifiedSource ? "checkmark.shield.fill" : "info.circle.fill")
                                 .foregroundStyle(isFullyVerifiedSource ? Color.green : AppColors.calorie)
-                            Text(nutritionSource)
+                            sourceCardTitle
                                 .font(.system(.body, design: .rounded, weight: .semibold))
                                 .accessibilityIdentifier("reviewFood.source")
                             Spacer()
@@ -569,9 +544,9 @@ struct FoodResultView: View {
                     }
 
                     Section("Serving") {
-                        HStack {
+                        VStack(alignment: .leading, spacing: 8) {
                             Text("Quantity")
-                            Spacer()
+                                .fixedSize(horizontal: true, vertical: false)
                             ServingUnitEditor(
                                 quantityText: $servingSizeText,
                                 servingSizeGrams: $servingSizeGrams,
@@ -587,6 +562,7 @@ struct FoodResultView: View {
                                     quantityFocusRequest += 1
                                 }
                             )
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         .id(ScrollTarget.quantity)
                         if servingSizeIsKnown && !selectedServingOption.isGramUnit {
@@ -896,6 +872,71 @@ struct FoodResultView: View {
 
 }
 
+private struct ReviewFoodSummary: View {
+    let name: String
+    let emoji: String?
+    let sourceBadge: String
+    let calories: Int
+    let protein: String
+    let carbs: String
+    let fat: String
+
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                if let emoji {
+                    Text(emoji)
+                        .font(.system(size: 40))
+                        .accessibilityHidden(true)
+                }
+                Text(name)
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("reviewFood.name")
+            }
+
+            Text(sourceBadge)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            Text("\(calories) cals")
+                .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                .accessibilityIdentifier("reviewFood.summary.calories")
+
+            if dynamicTypeSize.isAccessibilitySize {
+                VStack(spacing: 8) {
+                    macroValue("Protein", protein, AppColors.protein)
+                    macroValue("Carbs", carbs, AppColors.carbs)
+                    macroValue("Fat", fat, AppColors.fat)
+                }
+            } else {
+                HStack(spacing: 8) {
+                    macroValue("Protein", protein, AppColors.protein)
+                    macroValue("Carbs", carbs, AppColors.carbs)
+                    macroValue("Fat", fat, AppColors.fat)
+                }
+            }
+        }
+    }
+
+    private func macroValue(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(LocalizedDisplayText.text(label))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                .foregroundStyle(color)
+                .accessibilityIdentifier("reviewFood.summary.\(label.lowercased())")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+}
+
 struct IngredientEditorTarget: Identifiable {
     let id = UUID()
     let index: Int?
@@ -943,6 +984,13 @@ struct MealIngredientsSection: View {
                                 Image(systemName: "chevron.right")
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.tertiary)
+                            }
+                            if let nutritionSource = ingredient.nutritionSource,
+                               !nutritionSource.isEmpty {
+                                Text(nutritionSource)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("reviewFood.ingredientSource.\(ingredient.id)")
                             }
                             HStack(spacing: 14) {
                                 macro("P", ingredient.protein, AppColors.protein)
@@ -1736,48 +1784,58 @@ private struct ReviewNutritionValueRow: View {
 
     @State private var draft = ""
     @FocusState private var isFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        HStack {
+        let accessibilitySize = dynamicTypeSize.isAccessibilitySize
+        let rowLayout = accessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 8))
+        rowLayout {
             Text(LocalizedDisplayText.text(label))
                 .foregroundStyle(dim ? .secondary : .primary)
-            Spacer()
-            if isUnlocked {
-                TextField("0", text: Binding(
-                    get: { isFocused ? draft : editValue },
-                    set: { newValue in
-                        draft = newValue
-                        onEdit(newValue)
-                    }
-                ))
-                .focused($isFocused)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .fontWeight(.medium)
-                .frame(minWidth: 76, maxWidth: 118)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(AppColors.calorie.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
-                .onAppear { draft = editValue }
-                .onChange(of: editValue) { _, newValue in
-                    if !isFocused {
-                        draft = newValue
-                    }
-                }
-                .onChange(of: isUnlocked) { _, unlocked in
-                    if unlocked {
-                        draft = editValue
-                    } else {
-                        isFocused = false
-                    }
-                }
-            } else {
-                Text(displayValue)
+                .fixedSize(horizontal: true, vertical: false)
+            if !accessibilitySize { Spacer(minLength: 0) }
+            HStack(spacing: 8) {
+                if isUnlocked {
+                    TextField("0", text: Binding(
+                        get: { isFocused ? draft : editValue },
+                        set: { newValue in
+                            draft = newValue
+                            onEdit(newValue)
+                        }
+                    ))
+                    .focused($isFocused)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
                     .fontWeight(.medium)
+                    .frame(minWidth: 76, maxWidth: 118)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(AppColors.calorie.opacity(0.10), in: RoundedRectangle(cornerRadius: 9))
+                    .onAppear { draft = editValue }
+                    .onChange(of: editValue) { _, newValue in
+                        if !isFocused {
+                            draft = newValue
+                        }
+                    }
+                    .onChange(of: isUnlocked) { _, unlocked in
+                        if unlocked {
+                            draft = editValue
+                        } else {
+                            isFocused = false
+                        }
+                    }
+                } else {
+                    Text(displayValue)
+                        .fontWeight(.medium)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                Text(unit)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            Text(unit)
-                .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
+            .frame(maxWidth: accessibilitySize ? .infinity : nil, alignment: .trailing)
         }
     }
 }
