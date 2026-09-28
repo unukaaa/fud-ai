@@ -98,8 +98,11 @@ module AutomationGitHubApproval
   end
 
   def self.verify_and_prelaunch(input, client:, repo:, issue_number:, comment_id:, approver_id:,
-                                reread: -> { input }, clock: -> { Time.now.utc })
+                                validation_receipt: nil, validation_verifier: nil,
+                                reread: -> { input }, clock: -> { Time.now.utc },
+                                remote_head_reader: -> { AutomationDispatch.remote_main_head })
     return stop('pilot task is not the exact read-only specification') unless pilot_task?(input[:task].data)
+    return stop('missing trusted external validation receipt') unless validation_receipt.is_a?(Hash)
     return stop('GitHub approval source is not designated') unless repo == REPO &&
       issue_number.is_a?(Integer) && issue_number.positive? &&
       comment_id.is_a?(Integer) && comment_id.positive? &&
@@ -115,7 +118,7 @@ module AutomationGitHubApproval
                  'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => MAX_MINUTES,
                  'started_at' => fields['created_at'], 'expires_at' => fields['expires_at'],
                  'commit_allowed' => false, 'push_allowed' => false }
-    approved = input.merge(approval: approval)
+    approved = input.merge(approval: approval, validation_receipt: validation_receipt)
     receipt = { 'source_kind' => 'authenticated_user_approval', 'source_ref' => fields['source_ref'],
                 'approval_digest' => AutomationDispatch.digest(approval),
                 'binding_digest' => AutomationDispatch.digest(AutomationDispatch.approval_binding(approved)) }
@@ -127,7 +130,10 @@ module AutomationGitHubApproval
     end
     current_input = -> { reread.call.merge(approval: approval) }
     result = AutomationDispatch.prelaunch(approved, receipt: receipt, source_verifier: source_verifier,
-                                          reread: current_input, clock: clock)
+                                          validation_receipt: validation_receipt,
+                                          validation_verifier: validation_verifier,
+                                          reread: current_input, clock: clock,
+                                          remote_head_reader: remote_head_reader)
     result['dispatch_envelope']['read_only'] = true if result['status'] == 'PRELAUNCH_READY'
     result.merge('approval_status' => result['status'] == 'PRELAUNCH_READY' ? 'APPROVAL_VERIFIED' : 'STOP: HOLD',
                  'read_only' => result['status'] == 'PRELAUNCH_READY')
@@ -159,11 +165,20 @@ module AutomationGitHubApproval
       'validation_required' => PILOT_VALIDATION, 'stop_conditions' => PILOT_STOP
     ), live[:task].body)
     handoff = AutomationDecision.fixture(live[:handoff].data.merge(
-      'state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true,
-      'validation' => { 'complete' => true, 'passing' => true, 'head' => head, 'evidence' => 'synthetic docs check' }
+      'state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true
     ), live[:handoff].body)
     git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
     green = live.merge(task: task, handoff: handoff, git: git)
+    validation = {
+      'schema_version' => 1, 'source_kind' => 'trusted_controller_validation',
+      'source_ref' => 'synthetic-controller-run', 'head' => head,
+      'task_id' => PILOT_ID, 'task_digest' => AutomationDecision.task_digest(task.data),
+      'results' => { 'complete' => true, 'passing' => true, 'evidence' => 'synthetic docs check' },
+      'working_tree_digest' => AutomationDispatch.digest(AutomationDispatch.working_tree_state(git)),
+      'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => MAX_MINUTES,
+      'validated_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601
+    }
+    validation_verifier = ->(candidate) { candidate == validation }
     comment_id = 123
     issue_number = 7
     approver_id = 42
@@ -195,7 +210,9 @@ module AutomationGitHubApproval
     cases.each do |name, (evidence, candidate, designated_id, expected)|
       result = verify_and_prelaunch(candidate, client: FixtureClient.new(evidence), repo: REPO,
                                     issue_number: issue_number, comment_id: comment_id, approver_id: designated_id,
-                                    reread: -> { candidate }, clock: -> { now })
+                                    validation_receipt: validation, validation_verifier: validation_verifier,
+                                    reread: -> { candidate }, clock: -> { now },
+                                    remote_head_reader: -> { head })
       good = result['status'] == expected && result['dispatched'] == false &&
         (expected == 'PRELAUNCH_READY' ? result['approval_status'] == 'APPROVAL_VERIFIED' &&
           result['dispatch_envelope']['task_id'] == PILOT_ID &&

@@ -71,7 +71,7 @@ module AutomationDecision
 
   def self.handoff!(doc)
     data = doc.data
-    keys!(data, %w[schema_version state risk_lane last_task_status last_task_risk_lane auto_start_allowed human_decision_required next_task_envelope validation_evidence_ref], %w[validation], 'handoff')
+    keys!(data, %w[schema_version state risk_lane last_task_status last_task_risk_lane auto_start_allowed human_decision_required next_task_envelope validation_evidence_ref], [], 'handoff')
     raise Invalid, 'handoff: unsupported schema' unless data['schema_version'] == 1
     raise Invalid, 'handoff: invalid status/lane' unless %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['state']) && %w[GREEN AMBER RED].include?(data['risk_lane']) && %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['last_task_status']) && %w[GREEN AMBER RED].include?(data['last_task_risk_lane'])
     raise Invalid, 'handoff: invalid booleans' unless [data['auto_start_allowed'], data['human_decision_required']].all? { |v| v == true || v == false }
@@ -148,7 +148,9 @@ module AutomationDecision
     Digest::SHA256.hexdigest(JSON.generate(canonical(task)))
   end
 
-  def self.decide(policy, handoff, task, approval:, git:, now: Time.now.utc)
+  # Repository-only eligibility. Neither a repository file nor an approval
+  # argument can establish external validation or authenticated human consent.
+  def self.decide(policy, handoff, task, git:, now: Time.now.utc)
     policy!(policy)
     handoff!(handoff)
     task!(task)
@@ -164,57 +166,30 @@ module AutomationDecision
     reasons << 'commit/push permission requested' unless t['commit_allowed'] == false && t['push_allowed'] == false
     return result(t, reasons) unless reasons.empty?
 
-    validation = h['validation']
-    if validation.is_a?(Hash)
-      keys!(validation, %w[complete passing head evidence], [], 'validation')
-    end
-    reasons << 'validation incomplete or failing' unless validation.is_a?(Hash) && validation['complete'] == true && validation['passing'] == true && validation['head'] == git['head'] && validation['evidence'].is_a?(String) && !validation['evidence'].strip.empty?
     reasons << 'missing stable task_id' unless t['task_id'].is_a?(String) && !t['task_id'].strip.empty?
     protection = protected_reason(t, git)
     reasons << protection if protection
-    if approval.nil?
-      reasons << 'missing exact approved task list and bounds'
-    else
-      approval!(approval)
-      reasons << 'task not exactly authorized' unless approval['approved_tasks'].any? { |entry| entry['id'] == t['task_id'] && entry['sha256'] == task_digest(t) }
-      reasons << 'task bound exhausted' unless approval['tasks_completed'] < approval['max_tasks']
-      begin
-        started = Time.iso8601(approval['started_at'])
-        expires = Time.iso8601(approval['expires_at'])
-        reasons << 'stale or expired authorization' unless started <= now && now <= expires && now <= started + approval['max_duration_minutes'] * 60
-      rescue ArgumentError
-        reasons << 'malformed authorization time'
-      end
-    end
-    result(t, reasons, approval)
+    result(t, reasons)
   rescue Invalid => e
     result(task&.data || {}, [e.message])
   end
 
-  def self.result(task, reasons, approval = nil)
+  def self.result(task, reasons)
     allowed = reasons.empty?
-    output = { 'decision' => allowed ? 'LAUNCH_ALLOWED' : 'STOP: HOLD', 'reasons' => reasons, 'task' => { 'id' => task['task_id'], 'title' => task['title'], 'goal' => task['goal'] }, 'dispatched' => false }
+    output = { 'decision' => allowed ? 'READY_FOR_APPROVAL' : 'STOP: HOLD', 'reasons' => reasons, 'task' => { 'id' => task['task_id'], 'title' => task['title'], 'goal' => task['goal'] }, 'dispatched' => false }
     output['task']['allowed_files'] = task['allowed_files'] if allowed
     output['task']['validation_required'] = task['validation_required'] if allowed
-    output['bounds'] = approval.slice('max_tasks', 'tasks_completed', 'max_duration_minutes', 'expires_at') if allowed
+    output['task']['digest'] = task_digest(task) if allowed
     output
   end
 
-  def self.read_live(approval = nil)
+  def self.read_live
     files = %w[AUTOMATION_POLICY.md CURRENT_HANDOFF.md NEXT_TASK.md].map do |name|
       front_matter(File.read(File.join(ROOT, name)), name)
     end
-    decide(*files, approval: approval, git: live_git)
+    decide(*files, git: live_git)
   rescue Errno::ENOENT, Invalid => e
     result({}, [e.message])
-  end
-
-  def self.read_approval(path)
-    raw = File.read(path)
-    unique_yaml_keys!(Psych.parse(raw))
-    YAML.safe_load(raw, aliases: false)
-  rescue Errno::ENOENT, Psych::Exception => e
-    raise Invalid, "approval: unreadable or invalid (#{e.class})"
   end
 
   def self.fixture(data, body)
@@ -228,13 +203,13 @@ module AutomationDecision
     head = 'a' * 40
     git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
     now = Time.now.utc
-    green_h = fixture(handoff.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'validation' => { 'complete' => true, 'passing' => true, 'head' => head, 'evidence' => 'synthetic focused checks passed' }), handoff.body)
+    green_h = fixture(handoff.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true), handoff.body)
     green_t = fixture(task.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links', 'goal' => 'Read the routing documentation and report broken local links.', 'validation_required' => ['Record the checked links and an exit-zero validation result.']), task.body)
     plan = { 'schema_version' => 1, 'approved_tasks' => [{ 'id' => 'safe-doc-audit', 'sha256' => task_digest(green_t.data) }], 'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => 15, 'started_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601, 'commit_allowed' => false, 'push_allowed' => false }
     cases = {
       'current_hold' => [handoff, task, nil, 'STOP: HOLD'],
-      'synthetic_green' => [green_h, green_t, plan, 'LAUNCH_ALLOWED'],
-      'validation_incomplete' => [Doc.new(green_h.data.merge('validation' => green_h.data['validation'].merge('complete' => false)), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'synthetic_green' => [green_h, green_t, plan, 'READY_FOR_APPROVAL'],
+      'no_self_referential_validation' => [green_h, green_t, nil, 'READY_FOR_APPROVAL'],
       'auto_start_false' => [green_h, Doc.new(green_t.data.merge('auto_start_allowed' => false), green_t.body), plan, 'STOP: HOLD'],
       'amber' => [Doc.new(green_h.data.merge('risk_lane' => 'AMBER'), green_h.body), Doc.new(green_t.data.merge('risk_lane' => 'AMBER'), green_t.body), plan, 'STOP: HOLD'],
       'red' => [Doc.new(green_h.data.merge('risk_lane' => 'RED'), green_h.body), Doc.new(green_t.data.merge('risk_lane' => 'RED'), green_t.body), plan, 'STOP: HOLD'],
@@ -242,16 +217,16 @@ module AutomationDecision
       'contradictory_state' => [Doc.new(green_h.data.merge('state' => 'HOLD'), green_h.body), green_t, plan, 'STOP: HOLD'],
       'last_task_incomplete' => [Doc.new(green_h.data.merge('last_task_status' => 'HOLD'), green_h.body), green_t, plan, 'STOP: HOLD'],
       'human_decision' => [Doc.new(green_h.data.merge('human_decision_required' => true), green_h.body), green_t, plan, 'STOP: HOLD'],
-      'stale_validation' => [Doc.new(green_h.data.merge('validation' => green_h.data['validation'].merge('head' => 'b' * 40)), green_h.body), green_t, plan, 'STOP: HOLD'],
-      'missing_approval' => [green_h, green_t, nil, 'STOP: HOLD'],
-      'changed_task_details' => [green_h, Doc.new(green_t.data.merge('goal' => 'A different goal'), green_t.body), plan, 'STOP: HOLD'],
-      'expired_approval' => [green_h, green_t, plan.merge('expires_at' => (now - 1).iso8601), 'STOP: HOLD'],
+      'embedded_validation_rejected' => [Doc.new(green_h.data.merge('validation' => { 'head' => head }), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'missing_approval' => [green_h, green_t, nil, 'READY_FOR_APPROVAL'],
+      'changed_task_details' => [green_h, Doc.new(green_t.data.merge('goal' => 'A different goal'), green_t.body), plan, 'READY_FOR_APPROVAL'],
+      'expired_approval' => [green_h, green_t, plan.merge('expires_at' => (now - 1).iso8601), 'READY_FOR_APPROVAL'],
       'unsupported_field' => [Doc.new(green_h.data.merge('unknown' => true), green_h.body), green_t, plan, 'STOP: HOLD']
     }
     cases['missing_field'] = [Doc.new(green_h.data.reject { |key, _| key == 'state' }, green_h.body), green_t, plan, 'STOP: HOLD']
     failures = 0
-    cases.each do |name, (h, t, auth, expected)|
-      actual = decide(policy, h, t, approval: auth, git: git, now: now)
+    cases.each do |name, (h, t, _auth, expected)|
+      actual = decide(policy, h, t, git: git, now: now)
       failures += 1 unless actual['decision'] == expected
       puts JSON.generate({ 'case' => name }.merge(actual))
     end
@@ -273,17 +248,16 @@ end
 if __FILE__ == $PROGRAM_NAME
   if ARGV == ['--self-test']
     AutomationDecision.self_test
-  elsif ARGV.empty? || (ARGV.length == 2 && ARGV.first == '--approval')
+  elsif ARGV.empty?
     begin
-      approval = ARGV.empty? ? nil : AutomationDecision.read_approval(ARGV.last)
-      output = AutomationDecision.read_live(approval)
+      output = AutomationDecision.read_live
     rescue AutomationDecision::Invalid => e
       output = AutomationDecision.result({}, [e.message])
     end
     puts output['decision']
     puts JSON.pretty_generate(output)
   else
-    warn 'Usage: ruby scripts/automation_decision.rb [--self-test | --approval TRUSTED_PLAN.yml]'
+    warn 'Usage: ruby scripts/automation_decision.rb [--self-test]'
     exit 2
   end
 end

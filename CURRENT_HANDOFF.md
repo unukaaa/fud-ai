@@ -3,7 +3,7 @@ schema_version: 1
 state: HOLD
 risk_lane: AMBER
 last_task_status: COMPLETE
-last_task_risk_lane: GREEN
+last_task_risk_lane: AMBER
 auto_start_allowed: false
 human_decision_required: false
 next_task_envelope: NEXT_TASK.md
@@ -17,13 +17,13 @@ validation_evidence_ref: "#validation"
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
-- Task: Design and fixture-test GitHub issue-comment approval for one read-only GREEN pilot.
-- Status: COMPLETE for this tooling task, GREEN. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
-- Summary: A strict, unedited GitHub issue comment from the pinned human user ID can produce `APPROVAL_VERIFIED` and then `PRELAUNCH_READY` in an isolated fixture. Wrong/stale/edited/ambiguous approval stops. The live repo remains HOLD with no configured approver/comment and no launcher.
+- Task: Separate repository routing eligibility from external validation and authenticated approval.
+- Status: COMPLETE for this contract task, AMBER. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
+- Summary: A stable pushed GREEN routing checkpoint can say `READY_FOR_APPROVAL` without embedding its own HEAD or claiming validation/approval. `PRELAUNCH_READY` requires a trusted external validation receipt, separate authenticated GitHub approval, and a fresh matching remote HEAD. No launcher exists.
 
 ## Changes
 - Production commit files: `CURRENT_HANDOFF.md`, `ExerciseLibraryItem.swift`, `ExerciseCatalogWarmup.swift`, `ExerciseLibraryService.swift`, `ExerciseSearchMatcher.swift`, `FreeExerciseDBAssetResolver.swift`, `FreeExerciseDBLoader.swift`, `AnimatedExerciseVisual.swift`, and `ExerciseVisualAssetResolverTests.swift`.
-- This task adds `scripts/automation_github_approval.rb` and updates `AUTOMATION_POLICY.md` plus this handoff. `NEXT_TASK.md` stays HOLD/AMBER. No production, Search Food, Review Food, scheme, protected, or test file was edited.
+- This task changes only `AUTOMATION_POLICY.md`, this handoff, and the three `scripts/automation_*.rb` tools/fixtures. `NEXT_TASK.md` stays HOLD/AMBER. No production, Search Food, Review Food, scheme, protected, or app-test file was edited.
 
 ## Validation
 - Final focused suite: `ExerciseVisualAssetResolverTests` on arm64 iPhone 17 Simulator: **20 executed, 20 passed, 0 failed, 0 skipped**, `xcodebuild` exit 0 and result-bundle summary verified. Two new tests mount `AnimatedExerciseVisual`; the ready test also observes a decoded non-empty PNG image. Prior 18 resolver/cache tests remain green. One initial 20-test run had 18 passes/2 failures from a test-only nested-optional assertion error; the assertion was corrected and the final two suite runs passed 20/20.
@@ -42,13 +42,14 @@ validation_evidence_ref: "#validation"
 - Dry-run adapter validation: Ruby syntax passed for both automation scripts; existing decision fixtures **18/18 passed**, adapter fixtures **11/11 passed**, live adapter returned `STOP: HOLD` with `dispatch_envelope: null`. Synthetic GREEN returned one envelope with exact task/approval digests, file scope, validation, permissions, and finite bounds; two isolated runs emitted identical GREEN envelopes. HEAD/task/approval/evidence/protected-state mutation fixtures all stopped. `git diff --check` exited 0. **Real dispatches: 0; app tests 0; XCUITests 0; app build not run.**
 - Pre-launch contract validation: both Ruby scripts passed syntax; existing decision fixtures **18/18** and dispatcher fixtures **11/11** passed; new pre-launch fixtures **18/18** passed, including approval expiry during final recheck, bound-field changes, unverified provenance, and unchanged Git status with changed file contents. Live `--prelaunch` returned `STOP: HOLD`; synthetic GREEN returned `PRELAUNCH_READY` with an exact approved envelope. `git diff --check` exited 0. **Real dispatches: 0; app tests 0; XCUITests 0; app build not run.**
 - GitHub approval verifier: syntax passed; **12/12 deterministic fixtures passed**, including valid author, wrong author, wrong HEAD/digest, expiry, REST/GraphQL edit signals, edit after first fetch, missing comment, permission mismatch, and ambiguous text. Existing decision/dispatcher/pre-launch fixtures remained **18/18, 11/11, 18/18**. Valid synthetic comment returned `APPROVAL_VERIFIED` then `PRELAUNCH_READY`; invalid cases returned `STOP: HOLD`. Live script returned `STOP: HOLD` with no approver/comment configured. `git diff --check` exited 0. No authenticated live GitHub API call occurred; `gh` is not installed in this environment. **Real dispatches: 0; app tests 0; XCUITests 0; app build not run.**
+- Two-stage contract validation: Ruby syntax passed for all three scripts. Decision fixtures **18/18**, dispatcher fixtures **11/11**, pre-launch fixtures **28/28**, GitHub-approval fixtures **12/12**, all exit 0. A synthetic pushed GREEN checkpoint with no embedded validation/approval returned `READY_FOR_APPROVAL` and no envelope; missing/stale/unverified validation, changed dirty-file fingerprint/bounds, missing human approval, changed HEAD, and changed/unavailable fresh remote HEAD stopped. Both verified receipts returned `PRELAUNCH_READY` only in an injected fixture. Live routing/pre-launch remained `STOP: HOLD`. `git diff --check` passed. **Real dispatches: 0; external API calls: 0; app tests/XCUITests: 0; app build not run.**
 
 ## Automation routing
 - Contract: YAML front matter in `AUTOMATION_POLICY.md`, this handoff, and `NEXT_TASK.md`. `state` is the repository continuation gate; `risk_lane` is the proposed next task's lane. Last-task completion is separate from the gate. Every task records its status (`COMPLETE`, `HOLD`, `BLOCKED`, or `DECISION_REQUIRED`), lane (`GREEN`, `AMBER`, or `RED`), exact validation evidence, auto-start permission, and envelope reference.
 - Current gate: `HOLD` / `AMBER`; `auto_start_allowed: false`; `next_task_envelope: NEXT_TASK.md`. The envelope is advisory, never authorization. No commit/push permission is granted.
-- Decision tool: `ruby scripts/automation_decision.rb` reads live routing files and Git state; `--self-test` uses isolated in-memory fixtures. A future GREEN case needs structured passing validation tied to HEAD, a stable task ID, and a trusted finite approved plan. The tool has no dispatch capability; `LAUNCH_ALLOWED` is not permission to bypass the external approval source.
-- Dry-run adapter: `ruby scripts/automation_dispatch.rb` reuses the decision gate, re-reads live inputs before emitting an envelope, and fails closed if inputs change. It contains no task-launch or external API call.
-- Pre-launch contract: an authenticated external controller must independently verify a finite human approval and inject its receipt; a repository file or self-declared receipt is insufficient. The binding covers task ID/digest, HEAD, allowed/forbidden files, validation evidence, dirty-file content fingerprints, time/task bounds and expiry, and commit/push permissions. The final gate re-reads files/Git, rechecks current time and decision, and returns readiness only; it never starts work.
+- Decision tool: `ruby scripts/automation_decision.rb` reads live routing files and Git state; a pushed GREEN checkpoint may return `READY_FOR_APPROVAL`, never `LAUNCH_ALLOWED`. Repository front matter rejects embedded machine-readable validation. There is no local `--approval` path.
+- Dry-run adapter: `ruby scripts/automation_dispatch.rb` reuses and re-reads the repo gate; its repo-only result has no dispatch envelope and contains no task-launch capability.
+- Pre-launch contract: a trusted controller must inject independently verified, current-HEAD validation results with task ID/digest, dirty-file fingerprints, finite bounds, and expiry. Separately authenticated human approval must bind the same HEAD/task digest. The final gate re-reads files/Git, re-verifies both sources and times, freshly fetches remote main HEAD, and returns an envelope only if all agree. It never starts work.
 - GitHub pilot: `routing-doc-consistency-audit` is a synthetic read-only docs/automation audit with one-task/15-minute bounds and false commit/push permissions. The comment format is specified in `AUTOMATION_POLICY.md`. The verifier requires the designated numeric human GitHub ID and exact issue/comment identity from trusted configuration, checks REST author/URLs/timestamps and GraphQL `lastEditedAt`, and re-fetches before final readiness. No live approval was obtained.
 - Next integration step: separately designate the human approver and issue, provide an authenticated GitHub client, then seek explicit authorization for one real read-only GREEN launch; current HOLD/AMBER is not eligible.
 
@@ -64,7 +65,7 @@ validation_evidence_ref: "#validation"
 - The manifest's earlier single Simulator first-load measurement was 38.062 ms total (4.461 ms asset, 33.398 ms decode/validation), all observed on the main thread before this change. No new physical-device timing or visual-refresh measurement was made.
 - Uncommitted Review Food V2 presentation remains separate from this pushed exercise slice.
 - Exercise-manifest rendered refresh is now verified in a mounted Debug view with a gated cache. This does not replace physical-device judgment of animation/polish. The DEBUG-only seam has no release-build path or global mutable override.
-- Approval authenticity is not established inside this repository. The synthetic verifier proves the contract shape only; an external authenticated source and fresh remote-head verification remain necessary before any real GREEN launch.
+- Approval and validation authenticity are not established inside this repository. The synthetic fixtures prove the contract shape only; a trusted controller must generate and verify validation, verify the live human comment, and re-fetch remote HEAD before any real GREEN launch.
 - GitHub transport is implemented but unexercised against the live API because `gh` is unavailable and no designated approver/issue/comment was supplied. The pilot's read-only guarantee must be enforced by any future launcher sandbox, not inferred from the current `allowed_files` field.
 
 ## Protected working-tree changes
@@ -75,11 +76,12 @@ validation_evidence_ref: "#validation"
 - Pushed decision-layer commit: `7e11b1309`; dry-run dispatcher: `381299e19`; pre-launch contract: `6e2ccba0b` (`AUTOMATION_POLICY.md`, `scripts/automation_dispatch.rb`, `CURRENT_HANDOFF.md`). No app/test file was included in the pre-launch commit.
 - The pre-launch contract is committed and pushed. This handoff-only follow-up records its SHA; no launcher or task dispatch was added.
 - GitHub approval verifier checkpoint `1600f0886` is pushed (`AUTOMATION_POLICY.md`, `CURRENT_HANDOFF.md`, `scripts/automation_github_approval.rb`). This handoff-only follow-up records its SHA. No real GitHub comment was fetched and no task was dispatched.
+- Current two-stage contract changes to `AUTOMATION_POLICY.md`, this handoff, and three automation scripts are local and uncommitted. `NEXT_TASK.md` remains unchanged; no approval comment or task was dispatched.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
-First designate the approver's numeric GitHub user ID and a dedicated issue, then establish an authenticated GitHub client and validate one real unedited comment without launching. Only after a separate explicit approval should a one-task, read-only GREEN launcher be considered. Do not launch from current HOLD/AMBER; Search Food / Review Food V2 remain on HOLD.
+Review and checkpoint this two-stage contract without changing the current HOLD/AMBER task. Then prepare one exact GREEN routing pilot at a stable pushed HEAD; obtain fresh external validation and human approval separately. Do not launch from current HOLD/AMBER; Search Food / Review Food V2 remain on HOLD.
 
 ## Human decision required
-None for this dry-run. A future live pilot requires the user's designated GitHub approver/issue and separate launch authorization. Test infrastructure and native hit testing remain on HOLD.
+None for this contract validation. A future live pilot still needs separately trusted validation, designated authenticated GitHub approval, and explicit launch authorization. Test infrastructure and native hit testing remain on HOLD.
