@@ -1,17 +1,29 @@
+---
+schema_version: 1
+state: HOLD
+risk_lane: AMBER
+last_task_status: COMPLETE
+last_task_risk_lane: GREEN
+auto_start_allowed: false
+human_decision_required: false
+next_task_envelope: NEXT_TASK.md
+validation_evidence_ref: "#validation"
+---
+
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`; previous synchronized handoff checkpoint `8a778d77b551ed7a6ffccf6b18150c28c989372d` followed exercise commit `5a09e3c13`. This document is the next handoff-only checkpoint.
+- Branch: `main`; HEAD and `origin/main` were `40030254050a7c7ef03eedfbabdb87d4608e699d` at the start of this uncommitted documentation task.
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
-- Task: Prove or disprove `-collect-test-diagnostics never` with one intentionally failing UI test.
-- Status: HOLD. Search Food / Review Food HOLD is unchanged.
-- Summary: The prebuilt isolated probe again stalled before its named UI test began. It was interrupted once after 153.14 seconds; no expected assertion failure occurred. The diagnostic flag's post-failure effect remains unproven.
+- Task: Add repo-local automation routing policy and next-task envelope.
+- Status: COMPLETE for documentation only, GREEN. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
+- Summary: Added YAML-front-matter routing fields with fail-closed defaults. The proposed XCUITest worker diagnostic is AMBER/HOLD and cannot auto-start. The preceding probe executed 0 named tests, exited 75 after 153.14 seconds, and did not prove or disprove `-collect-test-diagnostics never`.
 
 ## Changes
 - Production commit files: `CURRENT_HANDOFF.md`, `ExerciseLibraryItem.swift`, `ExerciseCatalogWarmup.swift`, `ExerciseLibraryService.swift`, `ExerciseSearchMatcher.swift`, `FreeExerciseDBAssetResolver.swift`, `FreeExerciseDBLoader.swift`, `AnimatedExerciseVisual.swift`, and `ExerciseVisualAssetResolverTests.swift`.
-- This task changes only this handoff. The prior temporary probe is absent from source (final `calorietrackerUITests.swift` diff is empty); its compiled copy was used via `test-without-building`. No production, Search Food, Review Food, scheme, or protected file was edited.
+- New: `AUTOMATION_POLICY.md`, `NEXT_TASK.md`. Changed: this handoff only. No production, Search Food, Review Food, scheme, protected, or test file was edited.
 
 ## Validation
 - Final focused suite: `ExerciseVisualAssetResolverTests` on arm64 iPhone 17 Simulator: **20 executed, 20 passed, 0 failed, 0 skipped**, `xcodebuild` exit 0 and result-bundle summary verified. Two new tests mount `AnimatedExerciseVisual`; the ready test also observes a decoded non-empty PNG image. Prior 18 resolver/cache tests remain green. One initial 20-test run had 18 passes/2 failures from a test-only nested-optional assertion error; the assertion was corrected and the final two suite runs passed 20/20.
@@ -24,6 +36,13 @@
 - Unrelated probe: `xcodebuild -project ios/calorietracker.xcodeproj -scheme calorietracker -destination 'platform=iOS Simulator,id=FC84C07A-0C1B-4E64-8453-C29AC98C0FD0' -parallel-testing-enabled NO -collect-test-diagnostics never -resultBundlePath /private/tmp/foodai-xcode-finalization-probe-20260928.xcresult -only-testing:calorietrackerUITests/calorietrackerUITests/testResultBundleFailureProbe ARCHS=arm64 ONLY_ACTIVE_ARCH=YES test`. It compiled but no named test case executed; the test runner did not appear during the bounded wait. The stale command was interrupted once (exit 75). Its finalized bundle reports one **runner cancellation**, not an executed test failure. **Actual probe tests executed: 0.** This does not validate the flag's reliability after a real failing test. No second attempt was made.
 - Current one-attempt proof command: `/usr/bin/time -p xcodebuild test-without-building -xctestrun /Users/thedon/Library/Developer/Xcode/DerivedData/calorietracker-aawbdnvcapxlahfgtubegjqzlyvy/Build/Products/calorietracker_calorietracker_iphonesimulator27.0-arm64.xctestrun -destination 'platform=iOS Simulator,id=FC84C07A-0C1B-4E64-8453-C29AC98C0FD0' -destination-timeout 60 -parallel-testing-enabled NO -collect-test-diagnostics never -resultBundlePath /private/tmp/foodai-xcode-failure-flag-proof-20260928.xcresult -only-testing:calorietrackerUITests/calorietrackerUITests/testResultBundleFailureProbe`. Existing compiled test symbol was verified before the run. No rebuild or second test attempt occurred.
 - Current result: output reached only `Testing started`, not `Test Case ... started`; interrupt diagnostics said `waiting for workers to materialize`. No UI-test runner process appeared. Interrupted after **153.14 s**, `xcodebuild` exit **75**. The fresh result bundle has `Info.plist` and is readable, but `xcresulttool` reports **runner cancellation** as one failed record; **named test executions: 0, expected assertion failures: 0**. No `simctl_diagnostics/diagnose.log` or 600-second timeout appeared, but no actual test failure occurred, so the flag is **neither proven nor disproven** as a post-failure mitigation.
+- Routing documentation validation: Ruby's standard YAML parser loaded all three front-matter blocks and verified matching `HOLD`/`AMBER` gates with auto-start/commit/push disabled (exit 0). `git diff --check` exited 0. SHA-256 hashes of the six protected files, scheme, `FoodResultView.swift`, and `SearchFoodAcceptanceUITests.swift` matched the pre-task baseline exactly. **App tests: 0; XCUITests: 0; build: not run**—documentation-only validation, not product acceptance.
+- Read-only consumer dry run parsed the three routing files and returned **`STOP: HOLD`**: handoff/envelope `HOLD`, lane `AMBER`, auto-start disabled, and next-task UI-test validation incomplete (0 named executions). It dispatched 0 tasks; before/after Git status, HEAD, and protected-file hashes matched.
+
+## Automation routing
+- Contract: YAML front matter in `AUTOMATION_POLICY.md`, this handoff, and `NEXT_TASK.md`. `state` is the repository continuation gate; `risk_lane` is the proposed next task's lane. Last-task completion is separate from the gate. Every task records its status (`COMPLETE`, `HOLD`, `BLOCKED`, or `DECISION_REQUIRED`), lane (`GREEN`, `AMBER`, or `RED`), exact validation evidence, auto-start permission, and envelope reference.
+- Current gate: `HOLD` / `AMBER`; `auto_start_allowed: false`; `next_task_envelope: NEXT_TASK.md`. The envelope is advisory, never authorization. No commit/push permission is granted.
+- External trigger next step: wire a read-only Work/GitHub consumer to the proven fail-closed contract, with a separate finite approved task list and bounds. The local dry run returned `STOP: HOLD`; do not dispatch a task or create a schedule until a bounded plan is approved.
 
 ## Architecture decisions
 - `ExerciseVisualManifestCache` is MainActor-owned and observable. `start()` is idempotent; missing asset or invalid decode is a cached terminal failure, not a retry loop. Pending is distinct from failure.
@@ -43,8 +62,8 @@
 - Preserve the existing `ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme` edit. None of these protected/scheme files was staged, committed, reset, or modified in this task.
 
 ## Git state
-- Committed/pushed before this checkpoint: exercise slice `5a09e3c13` and handoff-only commit `8a778d77b` on `origin/main`. This document alone records the newer HOLD evidence.
-- Uncommitted intended work outside this handoff: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No exercise production/test or temporary probe source file remains uncommitted.
+- This documentation-only checkpoint packages `AUTOMATION_POLICY.md`, `NEXT_TASK.md`, and this handoff on `main`. Previous handoff checkpoint: `400302540`; use Git history for this checkpoint's exact SHA.
+- Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
