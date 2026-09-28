@@ -13,17 +13,17 @@ validation_evidence_ref: "#validation"
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`; HEAD and `origin/main` were `40030254050a7c7ef03eedfbabdb87d4608e699d` at the start of this uncommitted documentation task.
+- Branch: `main`; HEAD and `origin/main` were `6ecd045ab9a4470b624846256663912eac805347` at the start of this uncommitted dispatcher-decision task.
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
-- Task: Add repo-local automation routing policy and next-task envelope.
-- Status: COMPLETE for documentation only, GREEN. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
-- Summary: Added YAML-front-matter routing fields with fail-closed defaults. The proposed XCUITest worker diagnostic is AMBER/HOLD and cannot auto-start. The preceding probe executed 0 named tests, exited 75 after 153.14 seconds, and did not prove or disprove `-collect-test-diagnostics never`.
+- Task: Add and validate a GREEN-only, decision-only routing consumer.
+- Status: COMPLETE for this tooling task, GREEN. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
+- Summary: The live contract returns `STOP: HOLD` without dispatch. An isolated synthetic GREEN contract with passing validation, bounded exact approval, safe Git state, and protected-file exclusions returns `LAUNCH_ALLOWED` without dispatch. Denial fixtures fail closed.
 
 ## Changes
 - Production commit files: `CURRENT_HANDOFF.md`, `ExerciseLibraryItem.swift`, `ExerciseCatalogWarmup.swift`, `ExerciseLibraryService.swift`, `ExerciseSearchMatcher.swift`, `FreeExerciseDBAssetResolver.swift`, `FreeExerciseDBLoader.swift`, `AnimatedExerciseVisual.swift`, and `ExerciseVisualAssetResolverTests.swift`.
-- New: `AUTOMATION_POLICY.md`, `NEXT_TASK.md`. Changed: this handoff only. No production, Search Food, Review Food, scheme, protected, or test file was edited.
+- This task adds `scripts/automation_decision.rb` and updates `AUTOMATION_POLICY.md` plus this handoff. No production, Search Food, Review Food, scheme, protected, or test file was edited.
 
 ## Validation
 - Final focused suite: `ExerciseVisualAssetResolverTests` on arm64 iPhone 17 Simulator: **20 executed, 20 passed, 0 failed, 0 skipped**, `xcodebuild` exit 0 and result-bundle summary verified. Two new tests mount `AnimatedExerciseVisual`; the ready test also observes a decoded non-empty PNG image. Prior 18 resolver/cache tests remain green. One initial 20-test run had 18 passes/2 failures from a test-only nested-optional assertion error; the assertion was corrected and the final two suite runs passed 20/20.
@@ -38,11 +38,13 @@ validation_evidence_ref: "#validation"
 - Current result: output reached only `Testing started`, not `Test Case ... started`; interrupt diagnostics said `waiting for workers to materialize`. No UI-test runner process appeared. Interrupted after **153.14 s**, `xcodebuild` exit **75**. The fresh result bundle has `Info.plist` and is readable, but `xcresulttool` reports **runner cancellation** as one failed record; **named test executions: 0, expected assertion failures: 0**. No `simctl_diagnostics/diagnose.log` or 600-second timeout appeared, but no actual test failure occurred, so the flag is **neither proven nor disproven** as a post-failure mitigation.
 - Routing documentation validation: Ruby's standard YAML parser loaded all three front-matter blocks and verified matching `HOLD`/`AMBER` gates with auto-start/commit/push disabled (exit 0). `git diff --check` exited 0. SHA-256 hashes of the six protected files, scheme, `FoodResultView.swift`, and `SearchFoodAcceptanceUITests.swift` matched the pre-task baseline exactly. **App tests: 0; XCUITests: 0; build: not run**—documentation-only validation, not product acceptance.
 - Read-only consumer dry run parsed the three routing files and returned **`STOP: HOLD`**: handoff/envelope `HOLD`, lane `AMBER`, auto-start disabled, and next-task UI-test validation incomplete (0 named executions). It dispatched 0 tasks; before/after Git status, HEAD, and protected-file hashes matched.
+- Decision-layer validation: `ruby -c scripts/automation_decision.rb` passed; live invocation returned `STOP: HOLD` with reasons `state HOLD`, `risk lane AMBER`, and `auto_start_allowed false`. In-memory GREEN and denial fixtures: **18 cases, 18 expected decisions, 0 failures, 0 dispatches**. `git diff --check` exited 0. **App tests 0, XCUITests 0, app build not run.**
 
 ## Automation routing
 - Contract: YAML front matter in `AUTOMATION_POLICY.md`, this handoff, and `NEXT_TASK.md`. `state` is the repository continuation gate; `risk_lane` is the proposed next task's lane. Last-task completion is separate from the gate. Every task records its status (`COMPLETE`, `HOLD`, `BLOCKED`, or `DECISION_REQUIRED`), lane (`GREEN`, `AMBER`, or `RED`), exact validation evidence, auto-start permission, and envelope reference.
 - Current gate: `HOLD` / `AMBER`; `auto_start_allowed: false`; `next_task_envelope: NEXT_TASK.md`. The envelope is advisory, never authorization. No commit/push permission is granted.
-- External trigger next step: wire a read-only Work/GitHub consumer to the proven fail-closed contract, with a separate finite approved task list and bounds. The local dry run returned `STOP: HOLD`; do not dispatch a task or create a schedule until a bounded plan is approved.
+- Decision tool: `ruby scripts/automation_decision.rb` reads live routing files and Git state; `--self-test` uses isolated in-memory fixtures. A future GREEN case needs structured passing validation tied to HEAD, a stable task ID, and a trusted finite approved plan. The tool has no dispatch capability; `LAUNCH_ALLOWED` is not permission to bypass the external approval source.
+- Next integration step: have a trusted external Work/GitHub controller invoke the tool read-only and verify its decision output, still with dispatch disabled. Do not create a schedule or launch a task until a separate bounded plan is approved.
 
 ## Architecture decisions
 - `ExerciseVisualManifestCache` is MainActor-owned and observable. `start()` is idempotent; missing asset or invalid decode is a cached terminal failure, not a retry loop. Pending is distinct from failure.
@@ -62,12 +64,12 @@ validation_evidence_ref: "#validation"
 - Preserve the existing `ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme` edit. None of these protected/scheme files was staged, committed, reset, or modified in this task.
 
 ## Git state
-- This documentation-only checkpoint packages `AUTOMATION_POLICY.md`, `NEXT_TASK.md`, and this handoff on `main`. Previous handoff checkpoint: `400302540`; use Git history for this checkpoint's exact SHA.
+- Pushed routing checkpoint: `6ecd045ab9a4470b624846256663912eac805347` on `main`. The decision script, policy clarification, and this handoff are uncommitted and unpushed; no files are staged.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
-Diagnose the independent XCUITest worker-materialization stall on the current iPhone 18 Pro simulator without changing app behaviour or the scheme. Once a named UI test can start, make one fresh intentional-failure run with `-collect-test-diagnostics never` to evaluate post-failure finalization. Separately, Search Food's native Cavendish tap still requires an interactive Simulator or observable physical-device tap before Review Food V2 can be judged.
+Wire a trusted external controller to call the decision tool in read-only mode and verify `STOP: HOLD` against this checkout, without task dispatch. The AMBER XCUITest worker diagnostic remains advisory and needs separate approval; Search Food native hit testing and Review Food V2 remain on HOLD.
 
 ## Human decision required
 None. Test infrastructure and native hit testing remain on HOLD; no Search Food product fix is justified by the current evidence.

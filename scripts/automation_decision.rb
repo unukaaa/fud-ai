@@ -1,0 +1,287 @@
+#!/usr/bin/env ruby
+# Decision-only FOOD AI routing consumer. It never starts tasks or writes files.
+require 'json'
+require 'digest'
+require 'open3'
+require 'time'
+require 'yaml'
+
+module AutomationDecision
+  ROOT = File.expand_path('..', __dir__)
+  PROTECTED = %w[
+    ios/calorietracker.xcodeproj/project.pbxproj
+    ios/calorietracker.xcodeproj/xcshareddata/xcschemes/calorietracker.xcscheme
+    ios/calorietracker/Info.plist
+    ios/calorietracker/InfoPlist.xcstrings
+    ios/calorietracker/LocalModels.xcstrings
+    ios/calorietracker/Localizable.xcstrings
+    ios/calorietracker/WeeklyChallenge.xcstrings
+    ios/calorietracker/Views/FoodResultView.swift
+    ios/calorietrackerUITests/SearchFoodAcceptanceUITests.swift
+  ].freeze
+  Doc = Struct.new(:data, :body)
+
+  class Invalid < StandardError; end
+
+  def self.keys!(value, required, optional, label)
+    raise Invalid, "#{label}: expected mapping" unless value.is_a?(Hash)
+    missing = required - value.keys
+    unsupported = value.keys - required - optional
+    raise Invalid, "#{label}: missing #{missing.join(', ')}" unless missing.empty?
+    raise Invalid, "#{label}: unsupported #{unsupported.join(', ')}" unless unsupported.empty?
+  end
+
+  def self.unique_yaml_keys!(node)
+    if node.is_a?(Psych::Nodes::Mapping)
+      names = node.children.each_slice(2).map do |key, value|
+        raise Invalid, 'YAML: non-scalar key' unless key.is_a?(Psych::Nodes::Scalar)
+        unique_yaml_keys!(value)
+        key.value
+      end
+      raise Invalid, 'YAML: duplicate key' unless names.uniq.length == names.length
+    elsif node.respond_to?(:children) && node.children
+      node.children.each { |child| unique_yaml_keys!(child) }
+    end
+  end
+
+  def self.front_matter(text, label)
+    match = text.match(/\A---\r?\n(.*?)\r?\n---(?:\r?\n|\z)/m)
+    raise Invalid, "#{label}: missing or malformed front matter" unless match
+    unique_yaml_keys!(Psych.parse(match[1]))
+    data = YAML.safe_load(match[1], aliases: false)
+    raise Invalid, "#{label}: expected mapping" unless data.is_a?(Hash)
+    Doc.new(data, text[match.end(0)..])
+  rescue Psych::Exception => e
+    raise Invalid, "#{label}: invalid YAML (#{e.class})"
+  end
+
+  def self.policy!(doc)
+    data = doc.data
+    keys!(data, %w[schema_version handoff_file next_task_file states lane_precedence risk_lanes defaults forced_hold], [], 'policy')
+    raise Invalid, 'policy: unsupported schema' unless data['schema_version'] == 1
+    raise Invalid, 'policy: unsupported file names' unless data.values_at('handoff_file', 'next_task_file') == %w[CURRENT_HANDOFF.md NEXT_TASK.md]
+    raise Invalid, 'policy: unsupported states' unless data['states'] == %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED]
+    raise Invalid, 'policy: unsupported lanes' unless data['lane_precedence'] == %w[RED AMBER GREEN]
+    keys!(data['risk_lanes'], %w[GREEN AMBER RED], [], 'risk_lanes')
+    keys!(data['defaults'], %w[auto_start_allowed commit_allowed push_allowed], [], 'defaults')
+    raise Invalid, 'policy: unsafe defaults' unless data['defaults'].values.all? { |v| v == false }
+    keys!(data['forced_hold'], %w[flaky_or_incomplete_validation protected_file_write_or_conflict scope_expansion human_or_product_choice], [], 'forced_hold')
+    raise Invalid, 'policy: unsupported forced holds' unless data['forced_hold'].values_at('flaky_or_incomplete_validation', 'protected_file_write_or_conflict', 'scope_expansion', 'human_or_product_choice') == %w[AMBER AMBER AMBER RED]
+  end
+
+  def self.handoff!(doc)
+    data = doc.data
+    keys!(data, %w[schema_version state risk_lane last_task_status last_task_risk_lane auto_start_allowed human_decision_required next_task_envelope validation_evidence_ref], %w[validation], 'handoff')
+    raise Invalid, 'handoff: unsupported schema' unless data['schema_version'] == 1
+    raise Invalid, 'handoff: invalid status/lane' unless %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['state']) && %w[GREEN AMBER RED].include?(data['risk_lane']) && %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['last_task_status']) && %w[GREEN AMBER RED].include?(data['last_task_risk_lane'])
+    raise Invalid, 'handoff: invalid booleans' unless [data['auto_start_allowed'], data['human_decision_required']].all? { |v| v == true || v == false }
+    raise Invalid, 'handoff: unsupported references' unless data['next_task_envelope'] == 'NEXT_TASK.md' && data['validation_evidence_ref'] == '#validation' && doc.body.match?(/^## Validation\s*$/)
+  end
+
+  def self.task!(doc)
+    data = doc.data
+    required = %w[schema_version state risk_lane title goal allowed_files forbidden_files validation_required auto_start_allowed human_decision_required commit_allowed push_allowed stop_conditions]
+    keys!(data, required, %w[task_id], 'task')
+    raise Invalid, 'task: unsupported schema' unless data['schema_version'] == 1
+    raise Invalid, 'task: invalid status/lane' unless %w[COMPLETE HOLD BLOCKED DECISION_REQUIRED].include?(data['state']) && %w[GREEN AMBER RED].include?(data['risk_lane'])
+    raise Invalid, 'task: missing title/goal' unless %w[title goal].all? { |k| data[k].is_a?(String) && !data[k].strip.empty? }
+    raise Invalid, 'task: invalid booleans' unless %w[auto_start_allowed human_decision_required commit_allowed push_allowed].all? { |k| data[k] == true || data[k] == false }
+    %w[allowed_files forbidden_files validation_required stop_conditions].each do |key|
+      raise Invalid, "task: invalid #{key}" unless data[key].is_a?(Array) && !data[key].empty? && data[key].all? { |v| v.is_a?(String) && !v.strip.empty? }
+    end
+  end
+
+  def self.git_value(*args)
+    output, status = Open3.capture2e('git', '-C', ROOT, *args)
+    raise Invalid, "git #{args.first}: unavailable" unless status.success?
+    output.strip
+  end
+
+  def self.live_git
+    raw = git_value('status', '--porcelain=v1', '-z', '--untracked-files=all')
+    entries = raw.split("\0").map { |line| [line[0, 2], line[3..]] }
+    {
+      'branch' => git_value('branch', '--show-current'),
+      'head' => git_value('rev-parse', 'HEAD'),
+      'remote_head' => git_value('rev-parse', 'origin/main'),
+      'entries' => entries
+    }
+  end
+
+  def self.matches?(pattern, path)
+    return path.start_with?(pattern.delete_suffix('**')) if pattern.end_with?('/**')
+    return false if pattern.match?(/[\*?\[]/)
+    pattern == path
+  end
+
+  def self.protected_reason(task, git)
+    allowed = task['allowed_files']
+    forbidden = task['forbidden_files']
+    return 'unsafe allowed path' unless allowed.all? { |path| path.is_a?(String) && !path.start_with?('/', '.') && !path.include?('..') && !path.match?(/[\*?\[]/) }
+    return 'protected paths not excluded' unless PROTECTED.all? { |path| forbidden.any? { |glob| matches?(glob, path) } }
+    return 'allowed path intersects forbidden/protected files' if allowed.any? { |path| PROTECTED.include?(path) || forbidden.any? { |glob| matches?(glob, path) } }
+    return 'wrong branch or unsynchronized HEAD' unless git['branch'] == 'main' && git['head'] == git['remote_head']
+    return 'invalid Git state' unless git['entries'].is_a?(Array)
+    git['entries'].each do |status, path|
+      return 'staged, conflicted, or renamed Git state' unless status == ' M' || status == '??'
+      return 'unexpected working-tree change' unless forbidden.any? { |glob| matches?(glob, path) }
+    end
+    nil
+  end
+
+  def self.approval!(approval)
+    keys!(approval, %w[schema_version approved_tasks max_tasks tasks_completed max_duration_minutes started_at expires_at commit_allowed push_allowed], [], 'approval')
+    raise Invalid, 'approval: unsupported schema' unless approval['schema_version'] == 1
+    raise Invalid, 'approval: invalid task list' unless approval['approved_tasks'].is_a?(Array) && !approval['approved_tasks'].empty? && approval['approved_tasks'].all? { |entry| entry.is_a?(Hash) && entry.keys.sort == %w[id sha256] && entry['id'].is_a?(String) && !entry['id'].empty? && entry['sha256'].is_a?(String) && entry['sha256'].match?(/\A[0-9a-f]{64}\z/) }
+    raise Invalid, 'approval: invalid bounds' unless approval['max_tasks'].is_a?(Integer) && approval['max_tasks'] > 0 && approval['tasks_completed'].is_a?(Integer) && approval['tasks_completed'] >= 0 && approval['max_duration_minutes'].is_a?(Integer) && approval['max_duration_minutes'] > 0
+    raise Invalid, 'approval: commit/push not supported by decision-only tool' unless approval['commit_allowed'] == false && approval['push_allowed'] == false
+    %w[started_at expires_at].each { |key| raise Invalid, "approval: invalid #{key}" unless approval[key].is_a?(String) }
+  end
+
+  def self.canonical(value)
+    return value.keys.sort.to_h { |key| [key, canonical(value[key])] } if value.is_a?(Hash)
+    return value.map { |item| canonical(item) } if value.is_a?(Array)
+    value
+  end
+
+  def self.task_digest(task)
+    Digest::SHA256.hexdigest(JSON.generate(canonical(task)))
+  end
+
+  def self.decide(policy, handoff, task, approval:, git:, now: Time.now.utc)
+    policy!(policy)
+    handoff!(handoff)
+    task!(task)
+    h, t = handoff.data, task.data
+    reasons = []
+    reasons << 'contradictory handoff/envelope state' unless h['state'] == t['state']
+    reasons << 'contradictory handoff/envelope risk lane' unless h['risk_lane'] == t['risk_lane']
+    reasons << "state #{h['state']}" unless h['state'] == 'COMPLETE'
+    reasons << "risk lane #{h['risk_lane']}" unless h['risk_lane'] == 'GREEN'
+    reasons << 'last task not complete' unless h['last_task_status'] == 'COMPLETE'
+    reasons << 'auto_start_allowed false' unless h['auto_start_allowed'] == true && t['auto_start_allowed'] == true
+    reasons << 'human decision required' unless h['human_decision_required'] == false && t['human_decision_required'] == false
+    reasons << 'commit/push permission requested' unless t['commit_allowed'] == false && t['push_allowed'] == false
+    return result(t, reasons) unless reasons.empty?
+
+    validation = h['validation']
+    if validation.is_a?(Hash)
+      keys!(validation, %w[complete passing head evidence], [], 'validation')
+    end
+    reasons << 'validation incomplete or failing' unless validation.is_a?(Hash) && validation['complete'] == true && validation['passing'] == true && validation['head'] == git['head'] && validation['evidence'].is_a?(String) && !validation['evidence'].strip.empty?
+    reasons << 'missing stable task_id' unless t['task_id'].is_a?(String) && !t['task_id'].strip.empty?
+    protection = protected_reason(t, git)
+    reasons << protection if protection
+    if approval.nil?
+      reasons << 'missing exact approved task list and bounds'
+    else
+      approval!(approval)
+      reasons << 'task not exactly authorized' unless approval['approved_tasks'].any? { |entry| entry['id'] == t['task_id'] && entry['sha256'] == task_digest(t) }
+      reasons << 'task bound exhausted' unless approval['tasks_completed'] < approval['max_tasks']
+      begin
+        started = Time.iso8601(approval['started_at'])
+        expires = Time.iso8601(approval['expires_at'])
+        reasons << 'stale or expired authorization' unless started <= now && now <= expires && now <= started + approval['max_duration_minutes'] * 60
+      rescue ArgumentError
+        reasons << 'malformed authorization time'
+      end
+    end
+    result(t, reasons, approval)
+  rescue Invalid => e
+    result(task&.data || {}, [e.message])
+  end
+
+  def self.result(task, reasons, approval = nil)
+    allowed = reasons.empty?
+    output = { 'decision' => allowed ? 'LAUNCH_ALLOWED' : 'STOP: HOLD', 'reasons' => reasons, 'task' => { 'id' => task['task_id'], 'title' => task['title'], 'goal' => task['goal'] }, 'dispatched' => false }
+    output['task']['allowed_files'] = task['allowed_files'] if allowed
+    output['task']['validation_required'] = task['validation_required'] if allowed
+    output['bounds'] = approval.slice('max_tasks', 'tasks_completed', 'max_duration_minutes', 'expires_at') if allowed
+    output
+  end
+
+  def self.read_live(approval = nil)
+    files = %w[AUTOMATION_POLICY.md CURRENT_HANDOFF.md NEXT_TASK.md].map do |name|
+      front_matter(File.read(File.join(ROOT, name)), name)
+    end
+    decide(*files, approval: approval, git: live_git)
+  rescue Errno::ENOENT, Invalid => e
+    result({}, [e.message])
+  end
+
+  def self.read_approval(path)
+    raw = File.read(path)
+    unique_yaml_keys!(Psych.parse(raw))
+    YAML.safe_load(raw, aliases: false)
+  rescue Errno::ENOENT, Psych::Exception => e
+    raise Invalid, "approval: unreadable or invalid (#{e.class})"
+  end
+
+  def self.fixture(data, body)
+    front_matter("#{YAML.dump(data)}---\n#{body}", 'synthetic fixture')
+  end
+
+  def self.self_test
+    policy = front_matter(File.read(File.join(ROOT, 'AUTOMATION_POLICY.md')), 'policy')
+    handoff = front_matter(File.read(File.join(ROOT, 'CURRENT_HANDOFF.md')), 'handoff')
+    task = front_matter(File.read(File.join(ROOT, 'NEXT_TASK.md')), 'task')
+    head = 'a' * 40
+    git = { 'branch' => 'main', 'head' => head, 'remote_head' => head, 'entries' => [] }
+    now = Time.now.utc
+    green_h = fixture(handoff.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'validation' => { 'complete' => true, 'passing' => true, 'head' => head, 'evidence' => 'synthetic focused checks passed' }), handoff.body)
+    green_t = fixture(task.data.merge('state' => 'COMPLETE', 'risk_lane' => 'GREEN', 'auto_start_allowed' => true, 'task_id' => 'safe-doc-audit', 'title' => 'Check routing documentation links', 'goal' => 'Read the routing documentation and report broken local links.', 'validation_required' => ['Record the checked links and an exit-zero validation result.']), task.body)
+    plan = { 'schema_version' => 1, 'approved_tasks' => [{ 'id' => 'safe-doc-audit', 'sha256' => task_digest(green_t.data) }], 'max_tasks' => 1, 'tasks_completed' => 0, 'max_duration_minutes' => 15, 'started_at' => (now - 60).iso8601, 'expires_at' => (now + 600).iso8601, 'commit_allowed' => false, 'push_allowed' => false }
+    cases = {
+      'current_hold' => [handoff, task, nil, 'STOP: HOLD'],
+      'synthetic_green' => [green_h, green_t, plan, 'LAUNCH_ALLOWED'],
+      'validation_incomplete' => [Doc.new(green_h.data.merge('validation' => green_h.data['validation'].merge('complete' => false)), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'auto_start_false' => [green_h, Doc.new(green_t.data.merge('auto_start_allowed' => false), green_t.body), plan, 'STOP: HOLD'],
+      'amber' => [Doc.new(green_h.data.merge('risk_lane' => 'AMBER'), green_h.body), Doc.new(green_t.data.merge('risk_lane' => 'AMBER'), green_t.body), plan, 'STOP: HOLD'],
+      'red' => [Doc.new(green_h.data.merge('risk_lane' => 'RED'), green_h.body), Doc.new(green_t.data.merge('risk_lane' => 'RED'), green_t.body), plan, 'STOP: HOLD'],
+      'protected_file' => [green_h, Doc.new(green_t.data.merge('allowed_files' => ['ios/calorietracker/Info.plist']), green_t.body), plan, 'STOP: HOLD'],
+      'contradictory_state' => [Doc.new(green_h.data.merge('state' => 'HOLD'), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'last_task_incomplete' => [Doc.new(green_h.data.merge('last_task_status' => 'HOLD'), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'human_decision' => [Doc.new(green_h.data.merge('human_decision_required' => true), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'stale_validation' => [Doc.new(green_h.data.merge('validation' => green_h.data['validation'].merge('head' => 'b' * 40)), green_h.body), green_t, plan, 'STOP: HOLD'],
+      'missing_approval' => [green_h, green_t, nil, 'STOP: HOLD'],
+      'changed_task_details' => [green_h, Doc.new(green_t.data.merge('goal' => 'A different goal'), green_t.body), plan, 'STOP: HOLD'],
+      'expired_approval' => [green_h, green_t, plan.merge('expires_at' => (now - 1).iso8601), 'STOP: HOLD'],
+      'unsupported_field' => [Doc.new(green_h.data.merge('unknown' => true), green_h.body), green_t, plan, 'STOP: HOLD']
+    }
+    cases['missing_field'] = [Doc.new(green_h.data.reject { |key, _| key == 'state' }, green_h.body), green_t, plan, 'STOP: HOLD']
+    failures = 0
+    cases.each do |name, (h, t, auth, expected)|
+      actual = decide(policy, h, t, approval: auth, git: git, now: now)
+      failures += 1 unless actual['decision'] == expected
+      puts JSON.generate({ 'case' => name }.merge(actual))
+    end
+    %w[duplicate_key malformed_yaml].each do |name|
+      input = name == 'duplicate_key' ? "---\nstate: HOLD\nstate: COMPLETE\n---\n" : "---\nstate: [\n---\n"
+      begin
+        front_matter(input, name)
+        failures += 1
+        puts JSON.generate('case' => name, 'decision' => 'UNEXPECTED_ACCEPT')
+      rescue Invalid => e
+        puts JSON.generate('case' => name, 'decision' => 'STOP: HOLD', 'reasons' => [e.message], 'dispatched' => false)
+      end
+    end
+    puts "self_test=#{failures.zero? ? 'PASS' : 'FAIL'} cases=#{cases.length + 2} failures=#{failures} dispatched=0"
+    exit(failures.zero? ? 0 : 1)
+  end
+end
+
+if ARGV == ['--self-test']
+  AutomationDecision.self_test
+elsif ARGV.empty? || (ARGV.length == 2 && ARGV.first == '--approval')
+  begin
+    approval = ARGV.empty? ? nil : AutomationDecision.read_approval(ARGV.last)
+    output = AutomationDecision.read_live(approval)
+  rescue AutomationDecision::Invalid => e
+    output = AutomationDecision.result({}, [e.message])
+  end
+  puts output['decision']
+  puts JSON.pretty_generate(output)
+else
+  warn 'Usage: ruby scripts/automation_decision.rb [--self-test | --approval TRUSTED_PLAN.yml]'
+  exit 2
+end
