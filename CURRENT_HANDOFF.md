@@ -13,7 +13,7 @@ validation_evidence_ref: "#validation"
 # FOOD AI — Current Handoff
 
 ## Current checkpoint
-- Branch: `main`; pre-launch safety-contract checkpoint `6e2ccba0b` is pushed to `origin/main`. Search Food and Review Food remain on HOLD.
+- Branch: `main`; GitHub approval-verifier checkpoint `1600f0886` is pushed to `origin/main`. Search Food and Review Food remain on HOLD.
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
@@ -74,7 +74,7 @@ validation_evidence_ref: "#validation"
 ## Git state
 - Pushed decision-layer commit: `7e11b1309`; dry-run dispatcher: `381299e19`; pre-launch contract: `6e2ccba0b` (`AUTOMATION_POLICY.md`, `scripts/automation_dispatch.rb`, `CURRENT_HANDOFF.md`). No app/test file was included in the pre-launch commit.
 - The pre-launch contract is committed and pushed. This handoff-only follow-up records its SHA; no launcher or task dispatch was added.
-- The GitHub approval verifier, policy clarification, and this handoff are local, uncommitted, and unpushed. No real GitHub comment was fetched and no task was dispatched.
+- GitHub approval verifier checkpoint `1600f0886` is pushed (`AUTOMATION_POLICY.md`, `CURRENT_HANDOFF.md`, `scripts/automation_github_approval.rb`). This handoff-only follow-up records its SHA. No real GitHub comment was fetched and no task was dispatched.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
