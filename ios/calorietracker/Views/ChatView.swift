@@ -445,6 +445,7 @@ struct ChatView: View {
                     .background(.ultraThinMaterial, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove attached image")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
@@ -469,6 +470,7 @@ struct ChatView: View {
                             .padding(.horizontal, 8)
                             .padding(.vertical, 12)
                             .focused($isInputFocused)
+                            .accessibilityLabel("Message to Coach")
                     }
                 } else {
                     recordingIndicator
@@ -509,6 +511,8 @@ struct ChatView: View {
         }
         .disabled(isSending)
         .padding(.leading, 6)
+        .accessibilityLabel("Choose photo")
+        .accessibilityHint("Opens camera and photo library options")
     }
 
     @ViewBuilder private var trailingControl: some View {
@@ -551,6 +555,7 @@ struct ChatView: View {
                 .shadow(color: canSend ? AppColors.calorie.opacity(0.35) : .clear, radius: 8, x: 0, y: 4)
         }
         .disabled(!canSend)
+        .accessibilityLabel("Send message")
     }
 
     private var micButton: some View {
@@ -607,6 +612,7 @@ struct ChatView: View {
                 )
                 .shadow(color: AppColors.calorie.opacity(0.35), radius: 8, x: 0, y: 4)
         }
+        .accessibilityLabel("Send voice message")
     }
 
     private var voiceCancelButton: some View {
@@ -620,6 +626,7 @@ struct ChatView: View {
                 .background(Color.secondary.opacity(0.14), in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Discard voice recording")
     }
 
     private var recordingIndicator: some View {
