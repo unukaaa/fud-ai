@@ -17,13 +17,13 @@ validation_evidence_ref: "#validation"
 - Current phase: Search Food hit-target and uncommitted Review Food V2 acceptance remain on HOLD. The validated exercise concurrency/manifest-readiness slice is committed and pushed.
 
 ## Last task
-- Task: Add a dry-run dispatcher adapter behind the GREEN-only decision gate.
+- Task: Define and validate trusted approval provenance plus the final pre-launch recheck contract.
 - Status: COMPLETE for this tooling task, GREEN. The repository continuation gate, Search Food, and Review Food remain **HOLD**.
-- Summary: Live routing returns `STOP: HOLD` with no envelope. An isolated GREEN fixture emits one exact bounded `DRY_RUN_DISPATCH_READY` envelope; changed inputs and denial cases emit no envelope. No launch capability was added.
+- Summary: Live pre-launch routing returns `STOP: HOLD` with no envelope. An isolated GREEN fixture with an injected trusted-source verifier emits an exact bounded `PRELAUNCH_READY` envelope; changed inputs and denial cases stop. No launch capability was added.
 
 ## Changes
 - Production commit files: `CURRENT_HANDOFF.md`, `ExerciseLibraryItem.swift`, `ExerciseCatalogWarmup.swift`, `ExerciseLibraryService.swift`, `ExerciseSearchMatcher.swift`, `FreeExerciseDBAssetResolver.swift`, `FreeExerciseDBLoader.swift`, `AnimatedExerciseVisual.swift`, and `ExerciseVisualAssetResolverTests.swift`.
-- This task adds `scripts/automation_dispatch.rb`, adds a module-entry guard to `scripts/automation_decision.rb`, and updates this handoff. No production, Search Food, Review Food, scheme, protected, or test file was edited.
+- This task updates only `AUTOMATION_POLICY.md`, `scripts/automation_dispatch.rb`, and this handoff. No production, Search Food, Review Food, scheme, protected, or test file was edited.
 
 ## Validation
 - Final focused suite: `ExerciseVisualAssetResolverTests` on arm64 iPhone 17 Simulator: **20 executed, 20 passed, 0 failed, 0 skipped**, `xcodebuild` exit 0 and result-bundle summary verified. Two new tests mount `AnimatedExerciseVisual`; the ready test also observes a decoded non-empty PNG image. Prior 18 resolver/cache tests remain green. One initial 20-test run had 18 passes/2 failures from a test-only nested-optional assertion error; the assertion was corrected and the final two suite runs passed 20/20.
@@ -40,13 +40,15 @@ validation_evidence_ref: "#validation"
 - Read-only consumer dry run parsed the three routing files and returned **`STOP: HOLD`**: handoff/envelope `HOLD`, lane `AMBER`, auto-start disabled, and next-task UI-test validation incomplete (0 named executions). It dispatched 0 tasks; before/after Git status, HEAD, and protected-file hashes matched.
 - Decision-layer validation: `ruby -c scripts/automation_decision.rb` passed; live invocation returned `STOP: HOLD` with reasons `state HOLD`, `risk lane AMBER`, and `auto_start_allowed false`. In-memory GREEN and denial fixtures: **18 cases, 18 expected decisions, 0 failures, 0 dispatches**. `git diff --check` exited 0. **App tests 0, XCUITests 0, app build not run.**
 - Dry-run adapter validation: Ruby syntax passed for both automation scripts; existing decision fixtures **18/18 passed**, adapter fixtures **11/11 passed**, live adapter returned `STOP: HOLD` with `dispatch_envelope: null`. Synthetic GREEN returned one envelope with exact task/approval digests, file scope, validation, permissions, and finite bounds; two isolated runs emitted identical GREEN envelopes. HEAD/task/approval/evidence/protected-state mutation fixtures all stopped. `git diff --check` exited 0. **Real dispatches: 0; app tests 0; XCUITests 0; app build not run.**
+- Pre-launch contract validation: both Ruby scripts passed syntax; existing decision fixtures **18/18** and dispatcher fixtures **11/11** passed; new pre-launch fixtures **18/18** passed, including approval expiry during final recheck, bound-field changes, unverified provenance, and unchanged Git status with changed file contents. Live `--prelaunch` returned `STOP: HOLD`; synthetic GREEN returned `PRELAUNCH_READY` with an exact approved envelope. `git diff --check` exited 0. **Real dispatches: 0; app tests 0; XCUITests 0; app build not run.**
 
 ## Automation routing
 - Contract: YAML front matter in `AUTOMATION_POLICY.md`, this handoff, and `NEXT_TASK.md`. `state` is the repository continuation gate; `risk_lane` is the proposed next task's lane. Last-task completion is separate from the gate. Every task records its status (`COMPLETE`, `HOLD`, `BLOCKED`, or `DECISION_REQUIRED`), lane (`GREEN`, `AMBER`, or `RED`), exact validation evidence, auto-start permission, and envelope reference.
 - Current gate: `HOLD` / `AMBER`; `auto_start_allowed: false`; `next_task_envelope: NEXT_TASK.md`. The envelope is advisory, never authorization. No commit/push permission is granted.
 - Decision tool: `ruby scripts/automation_decision.rb` reads live routing files and Git state; `--self-test` uses isolated in-memory fixtures. A future GREEN case needs structured passing validation tied to HEAD, a stable task ID, and a trusted finite approved plan. The tool has no dispatch capability; `LAUNCH_ALLOWED` is not permission to bypass the external approval source.
 - Dry-run adapter: `ruby scripts/automation_dispatch.rb` reuses the decision gate, re-reads live inputs before emitting an envelope, and fails closed if inputs change. It contains no task-launch or external API call.
-- Next integration step: review trusted approval provenance and the final pre-launch recheck contract before separately authorizing any real launcher.
+- Pre-launch contract: an authenticated external controller must independently verify a finite human approval and inject its receipt; a repository file or self-declared receipt is insufficient. The binding covers task ID/digest, HEAD, allowed/forbidden files, validation evidence, dirty-file content fingerprints, time/task bounds and expiry, and commit/push permissions. The final gate re-reads files/Git, rechecks current time and decision, and returns readiness only; it never starts work.
+- Next integration step: separately authorize and implement a trusted controller-side approval verifier plus one bounded read-only GREEN launch path. The current repo remains HOLD/AMBER and is not eligible for that launch.
 
 ## Architecture decisions
 - `ExerciseVisualManifestCache` is MainActor-owned and observable. `start()` is idempotent; missing asset or invalid decode is a cached terminal failure, not a retry loop. Pending is distinct from failure.
@@ -60,6 +62,7 @@ validation_evidence_ref: "#validation"
 - The manifest's earlier single Simulator first-load measurement was 38.062 ms total (4.461 ms asset, 33.398 ms decode/validation), all observed on the main thread before this change. No new physical-device timing or visual-refresh measurement was made.
 - Uncommitted Review Food V2 presentation remains separate from this pushed exercise slice.
 - Exercise-manifest rendered refresh is now verified in a mounted Debug view with a gated cache. This does not replace physical-device judgment of animation/polish. The DEBUG-only seam has no release-build path or global mutable override.
+- Approval authenticity is not established inside this repository. The synthetic verifier proves the contract shape only; an external authenticated source and fresh remote-head verification remain necessary before any real GREEN launch.
 
 ## Protected working-tree changes
 - Preserve unrelated edits to `ios/calorietracker.xcodeproj/project.pbxproj`, `ios/calorietracker/Info.plist`, `ios/calorietracker/InfoPlist.xcstrings`, `ios/calorietracker/LocalModels.xcstrings`, `ios/calorietracker/Localizable.xcstrings`, and `ios/calorietracker/WeeklyChallenge.xcstrings`.
@@ -67,11 +70,12 @@ validation_evidence_ref: "#validation"
 
 ## Git state
 - Pushed decision-layer commit: `7e11b1309`; pushed handoff follow-up: `c9613689e`; pushed dry-run dispatcher: `381299e19` (`scripts/automation_dispatch.rb`, `scripts/automation_decision.rb`, `CURRENT_HANDOFF.md`). No app/test file was included.
+- This pre-launch contract is local and uncommitted: `AUTOMATION_POLICY.md`, `scripts/automation_dispatch.rb`, and `CURRENT_HANDOFF.md`. Nothing from this task was staged or pushed.
 - Uncommitted intended work outside this task: `FoodResultView.swift` and `SearchFoodAcceptanceUITests.swift` (Review Food V2/HOLD). No temporary probe source file remains uncommitted.
 - Unrelated/protected modifications: six files plus scheme edit listed above remain local and uncommitted; no staged/conflicted files are intended after the handoff-only commit.
 
 ## Recommended next task
-Review trusted approval provenance and the final pre-launch recheck contract as a bounded, read-only task. Do not enable real task launch without separate authorization. Search Food / Review Food V2 remain on HOLD.
+Obtain separate authorization for a trusted, authenticated controller-side verifier and one finite, harmless read-only GREEN task (for example, a local routing-document link check). Bind that exact approval to current HEAD and require the final pre-launch gate before adding a one-task launch adapter. Do not launch from the current HOLD/AMBER state; Search Food / Review Food V2 remain on HOLD.
 
 ## Human decision required
 None. Test infrastructure and native hit testing remain on HOLD; no Search Food product fix is justified by the current evidence.
