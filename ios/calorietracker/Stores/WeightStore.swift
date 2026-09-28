@@ -74,11 +74,13 @@ class WeightStore {
         syncProfileWeightToLatest()
 
         // Detect goal-weight crossing — fire only on the transition, not on every weight past goal.
-        if let profile = UserProfile.load(), let goalKg = profile.goalWeightKg, let previous = previousLatest {
+        if let profile = UserProfile.load(), let goalKg = profile.goalWeightKg,
+           let previous = previousLatest, let newest = latestEntry,
+           newest.id != previous.id {
             let crossed: Bool
             switch profile.goal {
-            case .lose:    crossed = previous.weightKg > goalKg && entry.weightKg <= goalKg
-            case .gain:    crossed = previous.weightKg < goalKg && entry.weightKg >= goalKg
+            case .lose:    crossed = previous.weightKg > goalKg && newest.weightKg <= goalKg
+            case .gain:    crossed = previous.weightKg < goalKg && newest.weightKg >= goalKg
             case .maintain: crossed = false
             }
             if crossed {
