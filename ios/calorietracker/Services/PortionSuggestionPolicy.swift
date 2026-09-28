@@ -57,7 +57,7 @@ enum PortionSuggestionPolicy {
             return min(max(unit.gramsPerUnit / totalGrams, 0.01), 1)
         }()
         let rawSuggested = min(max(maximum * 0.9, minimumUsefulFraction), comfortableFraction)
-        let suggested = snapSuggested(rawSuggested, totalGrams: totalGrams, unit: countableUnit)
+        let suggested = min(snapSuggested(rawSuggested, totalGrams: totalGrams, unit: countableUnit), maximum)
 
         return PortionSuggestionPlan(
             suggestedFraction: suggested,
