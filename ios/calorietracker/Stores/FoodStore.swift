@@ -53,6 +53,18 @@ class FoodStore {
     private let entriesBlob: PersistedBlobGuard
     private let favoritesBlob: PersistedBlobGuard
 
+    private enum EntrySaveOutcome {
+        case rejectedBeforeWrite
+        case acceptedLocally(synchronized: Bool)
+
+        var synchronized: Bool {
+            switch self {
+            case .rejectedBeforeWrite: false
+            case .acceptedLocally(let synchronized): synchronized
+            }
+        }
+    }
+
     /// Number of diary rows that were unreadable on the last load and had to be
     /// skipped. The raw blob was backed up first, so nothing is lost.
     private(set) var droppedEntriesOnLoad = 0
@@ -390,9 +402,16 @@ class FoodStore {
         guard FastingStore.persistedActiveSession(defaults: defaults) == nil else { return false }
         var entry = entry
         let photosToExport = (entry.imageData.map { [$0] } ?? []) + entry.additionalImageData
-        offloadImageToDiskIfNeeded(&entry)
+        let newImageFilenames = offloadImageToDiskIfNeeded(&entry, avoidExistingFiles: true)
         entries.append(entry)
-        saveEntries()
+        if case .rejectedBeforeWrite = saveEntries() {
+            entries.removeLast()
+            for filename in newImageFilenames where !entries.contains(where: { $0.allImageFilenames.contains(filename) })
+                && !favorites.contains(where: { $0.allImageFilenames.contains(filename) }) {
+                FoodImageStore.shared.delete(filename: filename)
+            }
+            return false
+        }
         exportLoggedMealPhotos(photosToExport)
         onEntriesChanged?()
         onEntryAdded?(entry)
@@ -414,7 +433,7 @@ class FoodStore {
         var entry = entry
         offloadImageToDiskIfNeeded(&entry)
         entries[index] = entry
-        if saveEntries() {
+        if saveEntries().synchronized {
             let removedFilenames = previousFilenames.subtracting(entry.allImageFilenames)
             for filename in removedFilenames where !isImageStillReferenced(filename: filename, excludingEntryID: entry.id) {
                 FoodImageStore.shared.delete(filename: filename)
@@ -589,24 +608,37 @@ class FoodStore {
     /// the bytes to disk and stamp the filename onto the entry. No-op when
     /// there are no bytes, or when a filename is already set (idempotent).
     /// The 4 MiB UserDefaults cap demands we never persist raw bytes.
-    private func offloadImageToDiskIfNeeded(_ entry: inout FoodEntry) {
-        let primaryStorageID = isImageStillReferenced(filename: "\(entry.id.uuidString).jpg", excludingEntryID: entry.id)
+    @discardableResult
+    private func offloadImageToDiskIfNeeded(_ entry: inout FoodEntry, avoidExistingFiles: Bool = false) -> Set<String> {
+        var createdFilenames: Set<String> = []
+        let primaryCandidate = "\(entry.id.uuidString).jpg"
+        let primaryStorageID = isImageStillReferenced(filename: primaryCandidate, excludingEntryID: entry.id)
+            || (avoidExistingFiles && FoodImageStore.shared.fileURL(for: primaryCandidate) != nil)
             ? UUID() : entry.id
-        if entry.imageFilename == nil, let data = entry.imageData,
-           let filename = FoodImageStore.shared.store(data: data, for: primaryStorageID) {
-            entry.imageFilename = filename
+        if entry.imageFilename == nil, let data = entry.imageData {
+            let candidate = "\(primaryStorageID.uuidString).jpg"
+            let existed = FoodImageStore.shared.fileURL(for: candidate) != nil
+            if let filename = FoodImageStore.shared.store(data: data, for: primaryStorageID) {
+                entry.imageFilename = filename
+                if !existed { createdFilenames.insert(filename) }
+            }
         }
         if entry.additionalImageFilenames.count < entry.additionalImageData.count {
             var filenames = entry.additionalImageFilenames
             for index in filenames.count..<entry.additionalImageData.count {
-                let storageID = isImageStillReferenced(filename: "\(entry.id.uuidString)-\(index + 1).jpg", excludingEntryID: entry.id)
+                let additionalCandidate = "\(entry.id.uuidString)-\(index + 1).jpg"
+                let storageID = isImageStillReferenced(filename: additionalCandidate, excludingEntryID: entry.id)
+                    || (avoidExistingFiles && FoodImageStore.shared.fileURL(for: additionalCandidate) != nil)
                     ? UUID() : entry.id
+                let candidate = "\(storageID.uuidString)-\(index + 1).jpg"
+                let existed = FoodImageStore.shared.fileURL(for: candidate) != nil
                 if let filename = FoodImageStore.shared.store(
                     data: entry.additionalImageData[index],
                     for: storageID,
                     index: index + 1
                 ) {
                     filenames.append(filename)
+                    if !existed { createdFilenames.insert(filename) }
                 }
             }
             entry.additionalImageFilenames = filenames
@@ -614,6 +646,7 @@ class FoodStore {
         let filenames = entry.allImageFilenames
         if entry.imageFilename == nil { entry.imageFilename = filenames.first }
         entry.additionalImageFilenames = filenames.filter { $0 != entry.imageFilename }
+        return createdFilenames
     }
 
     /// Used by deleteEntry / replaceAllEntries to decide whether the on-disk
@@ -660,9 +693,9 @@ class FoodStore {
     }
 
     @discardableResult
-    private func saveEntries() -> Bool {
-        guard entriesBlob.save(entries) else { return false }
-        return defaults.synchronize()
+    private func saveEntries() -> EntrySaveOutcome {
+        guard entriesBlob.save(entries) else { return .rejectedBeforeWrite }
+        return .acceptedLocally(synchronized: defaults.synchronize())
     }
 
     private func loadEntries(isInitialLoad: Bool) {
