@@ -1771,6 +1771,7 @@ private var dailyStepsTaskKey: String {
                             resolvedComponents: result.resolvedComponents,
                             progressiveMeal: result.progressiveMeal,
                             productMetadata: result.productMetadata,
+                            nutritionProvenance: result.historicalProvenanceSnapshot,
                             nutritionSource: result.nutritionSource,
                             nutritionSourceDetail: result.nutritionSourceDetail,
                             nutritionConfidence: result.nutritionConfidence,
@@ -1881,46 +1882,7 @@ private var dailyStepsTaskKey: String {
                         currentImage = currentImages.first
                         currentEmoji = entry.emoji
                         currentFoodSource = entry.source
-                        currentFoodResult = GeminiService.FoodAnalysis(
-                            name: entry.name,
-                            calories: entry.calories,
-                            protein: entry.protein,
-                            carbs: entry.carbs,
-                            fat: entry.fat,
-                            servingSizeGrams: entry.reviewServingReference,
-                            emoji: entry.emoji,
-                            sugar: entry.sugar,
-                            addedSugar: entry.addedSugar,
-                            fiber: entry.fiber,
-                            saturatedFat: entry.saturatedFat,
-                            monounsaturatedFat: entry.monounsaturatedFat,
-                            polyunsaturatedFat: entry.polyunsaturatedFat,
-                            cholesterol: entry.cholesterol,
-                            caffeine: entry.caffeine,
-                            supplementalNutrients: entry.supplementalNutrients,
-                            sodium: entry.sodium,
-                            potassium: entry.potassium,
-                            transFat: entry.transFat,
-                            calcium: entry.calcium,
-                            iron: entry.iron,
-                            magnesium: entry.magnesium,
-                            zinc: entry.zinc,
-                            vitaminA: entry.vitaminA,
-                            vitaminC: entry.vitaminC,
-                            vitaminD: entry.vitaminD,
-                            vitaminB12: entry.vitaminB12,
-                            vitaminE: entry.vitaminE,
-                            vitaminK: entry.vitaminK,
-                            folate: entry.folate,
-                            omega3: entry.omega3,
-                            servingUnitOptions: entry.reviewServingUnitOptions,
-                            selectedServingUnit: entry.reviewSelectedServingUnit,
-                            selectedServingQuantity: entry.reviewSelectedServingQuantity,
-                            servingSizeIsKnown: entry.hasKnownServingSize,
-                            progressiveMeal: entry.progressiveMeal,
-                            ingredients: entry.ingredients,
-                            productMetadata: entry.productMetadata
-                        )
+                        currentFoodResult = entry.analysisForRepeatReview()
                         foodLogPhase = .result
                         activeSheet = .foodResult
                     }

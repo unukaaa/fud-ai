@@ -47,6 +47,9 @@ struct GeminiService {
         var resolvedComponents: [RestaurantResolvedComponent] = []
         var foodResolutionComponents: [FoodResolutionComponent] = []
         var productMetadata: FoodProductMetadata? = nil
+        /// Set only when reopening a saved entry; preserves its accepted source
+        /// claim and trace IDs without consulting current nutrition datasets.
+        var savedNutritionProvenance: FoodNutritionProvenance? = nil
         var nutritionSource = "AI estimate"
         var nutritionSourceDetail: String? = nil
         var nutritionConfidence = "Low"

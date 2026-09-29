@@ -23,6 +23,7 @@ struct FoodResultView: View {
     let nutritionSource: String
     let nutritionSourceDetail: String?
     let nutritionConfidence: String
+    let nutritionProvenance: FoodNutritionProvenance
     let resolvedComponents: [RestaurantResolvedComponent]
     let proteinIsKnown: Bool
     let carbsAreKnown: Bool
@@ -129,6 +130,9 @@ struct FoodResultView: View {
     }
 
     private var sourceBadge: String {
+        if nutritionProvenance.classification == .unknown {
+            return FoodNutritionProvenance.legacyDisplaySource
+        }
         if nutritionSource == "Verified restaurant nutrition" {
             let restaurant = nutritionSourceDetail?
                 .components(separatedBy: " · ").first?
@@ -178,6 +182,7 @@ struct FoodResultView: View {
         resolvedComponents: [RestaurantResolvedComponent] = [],
         progressiveMeal: Bool = false,
         productMetadata: FoodProductMetadata? = nil,
+        nutritionProvenance: FoodNutritionProvenance? = nil,
         nutritionSource: String = "AI estimate",
         nutritionSourceDetail: String? = nil,
         nutritionConfidence: String = "Low",
@@ -255,6 +260,12 @@ struct FoodResultView: View {
         self.progressiveMeal = progressiveMeal
         self.resolvedComponents = resolvedComponents
         self.productMetadata = productMetadata
+        self.nutritionProvenance = nutritionProvenance ?? FoodNutritionProvenance.capture(
+            source: nutritionSource, detail: nutritionSourceDetail,
+            confidence: nutritionConfidence, proteinIsKnown: proteinIsKnown,
+            carbsAreKnown: carbsAreKnown, fatIsKnown: fatIsKnown,
+            restaurantComponents: resolvedComponents
+        )
         self.nutritionSource = nutritionSource
         self.nutritionSourceDetail = nutritionSourceDetail
         self.nutritionConfidence = nutritionConfidence
@@ -866,7 +877,8 @@ struct FoodResultView: View {
                 : selectedServingQuantity,
             progressiveMeal: progressiveMeal,
             ingredients: scaledIngredients,
-            productMetadata: productMetadata
+            productMetadata: productMetadata,
+            nutritionProvenance: nutritionProvenance
         )
     }
 

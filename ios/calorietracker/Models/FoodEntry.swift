@@ -78,6 +78,34 @@ enum FoodSource: String, Codable {
     case manual
 }
 
+/// The nutrition claim accepted when an entry was logged. This is a historical
+/// snapshot; source references are traceability only and never trigger lookup.
+struct FoodNutritionProvenance: Codable, Equatable, Sendable {
+    enum Classification: String, Codable, Sendable {
+        case verifiedRestaurant, partiallyVerifiedRestaurant, ausnut
+        case aiEstimate, structuredEstimate, mixed, nutritionLabel, barcode, unknown, other
+    }
+
+    enum SourceType: String, Codable, Sendable {
+        case restaurant, ausnut
+    }
+
+    struct SourceReference: Codable, Equatable, Sendable {
+        let sourceType: SourceType
+        let itemID: String
+        let componentID: String?
+    }
+
+    let classification: Classification
+    let displaySource: String
+    let detail: String?
+    let confidence: String
+    let proteinIsKnown: Bool
+    let carbsAreKnown: Bool
+    let fatIsKnown: Bool
+    let sourceReferences: [SourceReference]
+}
+
 enum MealType: String, Codable, CaseIterable {
     case breakfast
     case lunch
@@ -382,6 +410,9 @@ struct FoodEntry: Identifiable, Codable {
     var progressiveMeal: Bool
     var ingredients: [MealIngredient]
     var productMetadata: FoodProductMetadata?
+    /// Nil means this entry predates captured nutrition provenance. Do not
+    /// infer a source from its name, macros, or input method.
+    var nutritionProvenance: FoodNutritionProvenance?
 
     /// HealthKit/Health Connect can restore nutrition totals without restoring
     /// the food's original mass. Keep that state explicit instead of silently
@@ -460,7 +491,8 @@ struct FoodEntry: Identifiable, Codable {
         customNote: String? = nil,
         progressiveMeal: Bool = false,
         ingredients: [MealIngredient] = [],
-        productMetadata: FoodProductMetadata? = nil
+        productMetadata: FoodProductMetadata? = nil,
+        nutritionProvenance: FoodNutritionProvenance? = nil
     ) {
         self.id = id
         self.name = name
@@ -508,6 +540,7 @@ struct FoodEntry: Identifiable, Codable {
         self.progressiveMeal = progressiveMeal
         self.ingredients = ingredients
         self.productMetadata = productMetadata
+        self.nutritionProvenance = nutritionProvenance
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -523,7 +556,7 @@ struct FoodEntry: Identifiable, Codable {
         case vitaminA, vitaminC, vitaminD, vitaminB12, vitaminE, vitaminK, folate, omega3
         case servingSizeGrams
         case servingUnitOptions, selectedServingUnit, selectedServingQuantity, customNote, progressiveMeal, ingredients
-        case productMetadata
+        case productMetadata, nutritionProvenance
     }
 
     private static func decodeDouble(
@@ -596,6 +629,7 @@ struct FoodEntry: Identifiable, Codable {
         progressiveMeal = try container.decodeIfPresent(Bool.self, forKey: .progressiveMeal) ?? false
         ingredients = try container.decodeIfPresent([MealIngredient].self, forKey: .ingredients) ?? []
         productMetadata = try container.decodeIfPresent(FoodProductMetadata.self, forKey: .productMetadata)
+        nutritionProvenance = try container.decodeIfPresent(FoodNutritionProvenance.self, forKey: .nutritionProvenance)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -656,6 +690,7 @@ struct FoodEntry: Identifiable, Codable {
             try container.encode(ingredients, forKey: .ingredients)
         }
         try container.encodeIfPresent(productMetadata, forKey: .productMetadata)
+        try container.encodeIfPresent(nutritionProvenance, forKey: .nutritionProvenance)
     }
 
     var timeString: String {
@@ -753,7 +788,8 @@ struct FoodEntry: Identifiable, Codable {
             customNote: customNote,
             progressiveMeal: progressiveMeal,
             ingredients: ingredients,
-            productMetadata: productMetadata
+            productMetadata: productMetadata,
+            nutritionProvenance: nutritionProvenance
         )
     }
 }
@@ -770,7 +806,9 @@ extension FoodEntry {
             fat: fat,
             imageFilename: allImageFilenames.first,
             additionalImageFilenames: Array(allImageFilenames.dropFirst()),
-            emoji: emoji
+            emoji: emoji,
+            nutritionSource: nutritionProvenance?.displaySource,
+            nutritionSourceDetail: nutritionProvenance?.detail
         )
     }
 
@@ -823,7 +861,8 @@ extension FoodEntry {
             customNote: customNote,
             progressiveMeal: progressiveMeal,
             ingredients: ingredients,
-            productMetadata: productMetadata
+            productMetadata: productMetadata,
+            nutritionProvenance: nutritionProvenance
         )
     }
 }
