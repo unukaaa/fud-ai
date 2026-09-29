@@ -1477,6 +1477,28 @@ private var dailyStepsTaskKey: String {
 
                 }
 
+                if foodStore.recentEntries(days: 30).first != nil {
+                    Section {
+                        Button { savedMealsMode = .recent } label: {
+                            HStack(spacing: 12) {
+                                Label("Recent foods", systemImage: "clock.arrow.circlepath")
+                                    .font(.system(.body, design: .rounded, weight: .semibold))
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Browse saved foods to review and log again")
+                        .accessibilityIdentifier("today.recentFoods")
+                        .listRowBackground(AppColors.appCard)
+                    }
+                }
+
                 Section {
                     HStack {
                         Text("Today's meals")
@@ -1878,13 +1900,7 @@ private var dailyStepsTaskKey: String {
             .sheet(item: $savedMealsMode, content: { mode in
                 RecentsView(mode: mode, logDate: logDateForSelectedDay, onReview: { entry in
                     afterLoggingPresentationDismisses {
-                        currentImages = entry.allImageData.compactMap(UIImage.init(data:))
-                        currentImage = currentImages.first
-                        currentEmoji = entry.emoji
-                        currentFoodSource = entry.source
-                        currentFoodResult = entry.analysisForRepeatReview()
-                        foodLogPhase = .result
-                        activeSheet = .foodResult
+                        showRepeatedFoodReview(entry)
                     }
                 })
             })
@@ -2346,6 +2362,17 @@ private var dailyStepsTaskKey: String {
             guard token == loggingHandoffGeneration else { return }
             action()
         }
+    }
+
+    @MainActor
+    private func showRepeatedFoodReview(_ entry: FoodEntry) {
+        currentImages = entry.allImageData.compactMap(UIImage.init(data:))
+        currentImage = currentImages.first
+        currentEmoji = entry.emoji
+        currentFoodSource = entry.source
+        currentFoodResult = entry.analysisForRepeatReview()
+        foodLogPhase = .result
+        activeSheet = .foodResult
     }
 
     @MainActor
