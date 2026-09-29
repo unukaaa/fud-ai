@@ -37,6 +37,11 @@ struct FoodLogMealGroup: Identifiable {
     var totalFat: Double { entries.reduce(0) { $0 + $1.fat } }
 }
 
+enum FoodEntryMutationResult: Equatable {
+    case rejectedBeforeWrite
+    case acceptedLocally
+}
+
 @Observable
 class FoodStore {
     private(set) var entries: [FoodEntry] = []
@@ -52,6 +57,11 @@ class FoodStore {
     private let defaults: UserDefaults
     private let entriesBlob: PersistedBlobGuard
     private let favoritesBlob: PersistedBlobGuard
+
+#if DEBUG
+    /// One-shot refusal used only by the isolated rejected-save UI acceptance harness.
+    var rejectNextEditOrReplacementWriteForUITesting = false
+#endif
 
     private enum EntrySaveOutcome {
         case rejectedBeforeWrite
@@ -426,22 +436,25 @@ class FoodStore {
         }
     }
 
-    func updateEntry(_ entry: FoodEntry) {
-        guard !isPersistenceBlocked else { return }
-        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
-        let previousFilenames = Set(entries[index].allImageFilenames)
+    @discardableResult
+    func updateEntry(_ entry: FoodEntry) -> FoodEntryMutationResult {
+        guard !isPersistenceBlocked else { return .rejectedBeforeWrite }
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return .rejectedBeforeWrite }
+        let previous = entries[index]
+        let previousFilenames = Set(previous.allImageFilenames)
         var entry = entry
-        offloadImageToDiskIfNeeded(&entry)
+        let createdFilenames = offloadImageToDiskIfNeeded(&entry, avoidExistingFiles: true)
         entries[index] = entry
-        if saveEntries().synchronized {
-            let removedFilenames = previousFilenames.subtracting(entry.allImageFilenames)
-            for filename in removedFilenames where !isImageStillReferenced(filename: filename, excludingEntryID: entry.id) {
-                FoodImageStore.shared.delete(filename: filename)
-            }
+        if case .rejectedBeforeWrite = saveEditOrReplacement() {
+            entries[index] = previous
+            deleteUnreferencedImages(createdFilenames)
+            return .rejectedBeforeWrite
         }
+        deleteUnreferencedImages(previousFilenames.subtracting(entry.allImageFilenames))
         onEntriesChanged?()
         // Single callback so HealthKit can serialize delete-then-write atomically.
         onEntryUpdated?(entry)
+        return .acceptedLocally
     }
 
     func deleteEntry(_ entry: FoodEntry) {
@@ -494,42 +507,46 @@ class FoodStore {
         onEntriesChanged?()
     }
 
-    func replaceAllEntries(_ newEntries: [FoodEntry]) {
-        guard !isPersistenceBlocked else { return }
-        // Delete on-disk JPEGs for any entry that's about to be removed —
-        // otherwise Clear Food Log / Delete All Data orphan files in
-        // Application Support forever. Skip files that a favorite or a
-        // surviving entry still references (same filename, different id).
-        let surviving = Set(newEntries.map(\.id))
-        let survivingFilenames = Set(newEntries.flatMap(\.allImageFilenames))
-        let favoriteFilenames = Set(favorites.flatMap(\.allImageFilenames))
-        for old in entries where !surviving.contains(old.id) {
-            for filename in old.allImageFilenames {
-                if survivingFilenames.contains(filename) || favoriteFilenames.contains(filename) { continue }
-                FoodImageStore.shared.delete(filename: filename)
-            }
+    @discardableResult
+    func replaceAllEntries(_ newEntries: [FoodEntry]) -> FoodEntryMutationResult {
+        guard !isPersistenceBlocked else { return .rejectedBeforeWrite }
+        let previous = entries
+        let previousFilenames = Set(previous.flatMap(\.allImageFilenames))
+        var createdFilenames: Set<String> = []
+        entries = newEntries.map { incoming in
+            var candidate = incoming
+            createdFilenames.formUnion(offloadImageToDiskIfNeeded(&candidate, avoidExistingFiles: true))
+            return candidate
         }
-        entries = newEntries.map { var e = $0; offloadImageToDiskIfNeeded(&e); return e }
-        saveEntries()
+        if case .rejectedBeforeWrite = saveEditOrReplacement() {
+            entries = previous
+            deleteUnreferencedImages(createdFilenames)
+            return .rejectedBeforeWrite
+        }
+        deleteUnreferencedImages(previousFilenames.subtracting(entries.flatMap(\.allImageFilenames)))
         onEntriesChanged?()
+        return .acceptedLocally
     }
 
     /// Applies a validated diary import in one local write, then mirrors the
     /// resulting ID changes to Apple Health through the existing callbacks.
     /// Entries whose IDs survive the import are updates; new IDs are additions.
-    func replaceEntriesFromImport(_ newEntries: [FoodEntry]) {
-        guard !isPersistenceBlocked else { return }
+    @discardableResult
+    func replaceEntriesFromImport(_ newEntries: [FoodEntry]) -> FoodEntryMutationResult {
+        guard !isPersistenceBlocked else { return .rejectedBeforeWrite }
         let oldIDs = Set(entries.map(\.id))
         let newIDs = Set(newEntries.map(\.id))
         let removedIDs = oldIDs.subtracting(newIDs)
         let updatedEntries = newEntries.filter { oldIDs.contains($0.id) }
         let addedEntries = newEntries.filter { !oldIDs.contains($0.id) }
 
-        replaceAllEntries(newEntries)
+        let result = replaceAllEntries(newEntries)
+        guard result == .acceptedLocally else { return result }
 
         removedIDs.forEach { onEntryDeleted?($0) }
         updatedEntries.forEach { onEntryUpdated?($0) }
         addedEntries.forEach { onEntryAdded?($0) }
+        return result
     }
 
     /// Upserts `cloudEntries` (iCloud restore, HealthKit recovery) by id.
@@ -649,7 +666,7 @@ class FoodStore {
         return createdFilenames
     }
 
-    /// Used by deleteEntry / replaceAllEntries to decide whether the on-disk
+    /// Used by image writes and deletion to decide whether the on-disk
     /// JPEG can safely be removed. A filename can be shared by a logged entry
     /// + a favorite (same `id`, same generated `fudai-image-<uuid>.jpg`), or
     /// by two logged entries that came from the same favorite re-log.
@@ -658,6 +675,13 @@ class FoodStore {
             return true
         }
         return favorites.contains { $0.allImageFilenames.contains(filename) }
+    }
+
+    private func deleteUnreferencedImages(_ filenames: Set<String>) {
+        for filename in filenames where !entries.contains(where: { $0.allImageFilenames.contains(filename) })
+            && !favorites.contains(where: { $0.allImageFilenames.contains(filename) }) {
+            FoodImageStore.shared.delete(filename: filename)
+        }
     }
 
     private func startObservingExternalChanges() {
@@ -696,6 +720,16 @@ class FoodStore {
     private func saveEntries() -> EntrySaveOutcome {
         guard entriesBlob.save(entries) else { return .rejectedBeforeWrite }
         return .acceptedLocally(synchronized: defaults.synchronize())
+    }
+
+    private func saveEditOrReplacement() -> EntrySaveOutcome {
+#if DEBUG
+        if rejectNextEditOrReplacementWriteForUITesting {
+            rejectNextEditOrReplacementWriteForUITesting = false
+            return .rejectedBeforeWrite
+        }
+#endif
+        return saveEntries()
     }
 
     private func loadEntries(isInitialLoad: Bool) {

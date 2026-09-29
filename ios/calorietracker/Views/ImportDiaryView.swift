@@ -11,6 +11,14 @@ struct ImportDiaryView: View {
     @State private var errorMessage: String?
     @State private var importedCount: Int?
 
+    init() {}
+
+#if DEBUG
+    init(testingPreview: DiaryImportPreview) {
+        _preview = State(initialValue: testingPreview)
+    }
+#endif
+
     var body: some View {
         NavigationStack {
             Form {
@@ -119,7 +127,11 @@ struct ImportDiaryView: View {
 
     private func apply(_ preview: DiaryImportPreview, mode: DiaryImportMode) {
         let updated = DiaryImporter.applying(preview, to: foodStore.entries, mode: mode)
-        foodStore.replaceEntriesFromImport(updated)
+        guard foodStore.replaceEntriesFromImport(updated) == .acceptedLocally else {
+            importedCount = nil
+            errorMessage = "The food diary couldn’t be saved. Your existing entries are unchanged."
+            return
+        }
         if preview.includesWater {
             waterStore.replaceEntriesFromImport(DiaryImporter.applyingWater(preview, to: waterStore.entries, mode: mode))
         }

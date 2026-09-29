@@ -95,6 +95,15 @@ struct calorietrackerApp: App {
             }
             .tint(AppThemeColor.color(for: appThemeColorRaw).color)
             .preferredColorScheme(colorScheme)
+#if DEBUG
+            .overlay {
+                if CommandLine.arguments.contains("--foodstore-rejection-ui-test") {
+                    FoodStoreRejectionAcceptanceHarness()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(.systemBackground))
+                }
+            }
+#endif
             .onAppear {
                 AppThemeColor.applyAppIconIfNeeded(for: AppThemeColor.color(for: appThemeColorRaw))
             }

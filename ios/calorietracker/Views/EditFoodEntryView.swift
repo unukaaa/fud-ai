@@ -59,6 +59,7 @@ struct EditFoodEntryView: View {
     @State private var showLeftoverReview = false
     @State private var isEstimatingLeftovers = false
     @State private var leftoverError: String?
+    @State private var saveError: String?
 
     @State private var name: String
     @State private var servingSizeGrams: Double
@@ -552,6 +553,14 @@ struct EditFoodEntryView: View {
                         LeftoverReviewSheet(entry: entry, leftoverImage: image, estimate: estimate) { eatenFraction in
                             applyLeftoverUpdate(eatenFraction: eatenFraction, leftoverImage: image)
                         }
+                        .alert("Couldn’t Save Food", isPresented: Binding(
+                            get: { saveError != nil },
+                            set: { if !$0 { saveError = nil } }
+                        )) {
+                            Button("OK", role: .cancel) { saveError = nil }
+                        } message: {
+                            Text(saveError ?? "Your changes weren’t saved. Please try again.")
+                        }
                     }
                 }
                 .alert("Couldn’t Estimate Leftovers", isPresented: Binding(
@@ -561,6 +570,14 @@ struct EditFoodEntryView: View {
                     Button("OK", role: .cancel) { leftoverError = nil }
                 } message: {
                     Text(leftoverError ?? "Please try another photo.")
+                }
+                .alert("Couldn’t Save Food", isPresented: Binding(
+                    get: { saveError != nil },
+                    set: { if !$0 { saveError = nil } }
+                )) {
+                    Button("OK", role: .cancel) { saveError = nil }
+                } message: {
+                    Text(saveError ?? "Your changes weren’t saved. Please try again.")
                 }
                 .fullScreenImagePreview($imagePreview)
             }
@@ -765,7 +782,10 @@ struct EditFoodEntryView: View {
             updated.additionalImageData.append(data)
         }
 
-        foodStore.updateEntry(updated)
+        guard foodStore.updateEntry(updated) == .acceptedLocally else {
+            saveError = "Your changes weren’t saved. Please try again."
+            return
+        }
         showLeftoverReview = false
         dismiss()
     }
@@ -901,7 +921,10 @@ struct EditFoodEntryView: View {
             ingredients: scaledIngredients,
             productMetadata: entry.productMetadata
         )
-        foodStore.updateEntry(updated.removingPhotos(withIDs: removedPhotoIDs))
+        guard foodStore.updateEntry(updated.removingPhotos(withIDs: removedPhotoIDs)) == .acceptedLocally else {
+            saveError = "Your changes weren’t saved. Please try again."
+            return
+        }
         dismiss()
     }
 }
