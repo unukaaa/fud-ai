@@ -61,6 +61,28 @@ struct OpenFoodFactsServiceTests {
         #expect(result.productMetadata?.categories == ["Cereals"])
     }
 
+    @Test func missingServingUsesAnExplicitHundredGramBasis() async throws {
+        let session = makeSession { request in
+            response(
+                for: request,
+                statusCode: 200,
+                json: #"{"status":1,"product":{"product_name":"Test Product","nutriments":{"energy-kcal_100g":200,"proteins_100g":10,"carbohydrates_100g":30,"fat_100g":5}}}"#
+            )
+        }
+        defer { finish(session) }
+
+        let result = try await OpenFoodFactsService.lookup(barcode: "0012345678901", session: session)
+
+        #expect(result.calories == 200)
+        #expect(result.protein == 10)
+        #expect(result.servingSizeGrams == 100)
+        #expect(result.servingUnitOptions.map(\.unit) == ["g"])
+        #expect(result.selectedServingUnit == "g")
+        #expect(result.selectedServingQuantity == 100)
+        #expect(result.productMetadata?.barcode == "0012345678901")
+        #expect(result.nutritionSource == "Open Food Facts")
+    }
+
     @Test func lookupWithImageDownloadsTrustedProductPhoto() async throws {
         let expectedImage = Data([0xFF, 0xD8, 0xFF, 0xD9])
         let session = makeSession { request in

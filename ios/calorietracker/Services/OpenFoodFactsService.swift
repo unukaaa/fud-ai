@@ -184,12 +184,17 @@ enum OpenFoodFactsService {
         from product: OpenFoodFactsProduct,
         barcode: String
     ) throws -> GeminiService.FoodAnalysis {
-        guard let nutriments = product.nutriments else { throw LookupError.missingNutrition }
+        guard var nutriments = product.nutriments else { throw LookupError.missingNutrition }
 
-        let servingGrams = max(
-            product.servingQuantity?.value ?? grams(from: product.servingSize) ?? 100,
-            1
-        )
+        let validServingGrams = [product.servingQuantity?.value, grams(from: product.servingSize)]
+            .compactMap { $0 }
+            .first { $0.isFinite && $0 > 0 }
+        let hasReportedServing = validServingGrams != nil
+        let servingGrams = validServingGrams ?? 100
+        if !hasReportedServing {
+            // Without a serving weight, *_serving values have no usable gram basis.
+            nutriments = nutriments.per100gOnly()
+        }
         let scale = servingGrams / 100
 
         let calories = servingValue("energy-kcal", in: nutriments, scale: scale)
@@ -203,7 +208,9 @@ enum OpenFoodFactsService {
         }
 
         let name = productName(from: product, barcode: barcode)
-        let servingOption = ServingUnitOption(unit: "serving", gramsPerUnit: servingGrams, quantity: 1)
+        let servingOption = hasReportedServing
+            ? ServingUnitOption(unit: "serving", gramsPerUnit: servingGrams, quantity: 1)
+            : ServingUnitOption.grams
         var servingOptions = [servingOption]
         if let packageGrams = packageGrams(from: product),
            abs(packageGrams - servingGrams) > 0.01 {
@@ -263,7 +270,7 @@ enum OpenFoodFactsService {
             omega3: rounded(servingValue("omega-3-fat", in: nutriments, scale: scale)),
             servingUnitOptions: servingOptions,
             selectedServingUnit: servingOption.unit,
-            selectedServingQuantity: 1,
+            selectedServingQuantity: hasReportedServing ? 1 : 100,
             productMetadata: metadata,
             nutritionSource: "Open Food Facts",
             nutritionSourceDetail: "Barcode match; check the package label if values look outdated",
@@ -473,6 +480,14 @@ enum OpenFoodFactsService {
 
     private struct OpenFoodFactsNutriments: Decodable {
         private let values: [String: Double]
+
+        private init(values: [String: Double]) {
+            self.values = values
+        }
+
+        func per100gOnly() -> Self {
+            Self(values: values.filter { $0.key.hasSuffix("_100g") })
+        }
 
         func value(for key: String) -> Double? {
             values[key]
