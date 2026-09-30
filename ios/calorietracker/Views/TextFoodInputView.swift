@@ -7,12 +7,21 @@ struct TextFoodInputView: View {
     @State private var suggestions: [UnifiedFoodSuggestion] = []
     @State private var restaurantSearchIndex = RestaurantFoodSearchIndex.bundled()
     @State private var ausnutSearchIndex = AUSNUTFoodSearchIndex.bundled()
+    @State private var conceptRoute: FoodConceptSearchRoute?
+    @State private var conceptChoiceState: FoodConceptChoiceState = .discovery
+    @State private var currentCandidateSourceIDs: [String] = []
+    @State private var currentClarificationPlan: FoodClarificationPlan?
+    @State private var usedClarificationDimensions: Set<FoodClarificationPlan.Dimension> = []
+    @State private var selectedClarificationPath: [FoodClarificationStopPolicy.Selection] = []
+    @State private var clarificationContext: String?
+    @State private var showingAllConceptChoices = false
     @FocusState private var isFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var onCancel: () -> Void
     var onSubmit: (String) -> Void
+    var onEstimate: ((String) -> Void)? = nil
     var onSelectRestaurant: ((RestaurantFoodSelection, String) -> Void)? = nil
     var onSelectAUSNUT: ((AUSNUTFoodSelection) -> Void)? = nil
 
@@ -38,14 +47,138 @@ struct TextFoodInputView: View {
     private var suggestionAreaHeight: CGFloat { dynamicTypeSize.isAccessibilitySize ? 260 : 190 }
 
     private func updateSuggestions(for query: String) {
+        conceptChoiceState = .discovery
+        showingAllConceptChoices = false
+        currentCandidateSourceIDs = []
+        currentClarificationPlan = nil
+        usedClarificationDimensions = []
+        selectedClarificationPath = []
+        clarificationContext = nil
         guard onSelectRestaurant != nil, !query.isEmpty else {
             suggestions = []
+            conceptRoute = nil
             return
         }
-        suggestions = UnifiedFoodSearchIndex(
+        let index = UnifiedFoodSearchIndex(
             restaurants: restaurantSearchIndex,
             ausnut: onSelectAUSNUT == nil ? nil : ausnutSearchIndex
-        ).search(query, limit: 5)
+        )
+        suggestions = index.search(query, limit: 5)
+        conceptRoute = FoodConceptSearchRoute(index.assessIdentity(query), suggestions: suggestions)
+    }
+
+    private func selectSource(_ sourceID: String) -> Bool {
+        if sourceID.hasPrefix("ausnut:"), let onSelectAUSNUT {
+            let foodID = String(sourceID.dropFirst("ausnut:".count))
+            guard AustralianNutritionService.identity(forID: foodID) != nil else { return false }
+            onSelectAUSNUT(AUSNUTFoodSelection(foodID: foodID))
+            return true
+        }
+        if sourceID.hasPrefix("restaurant:"), let onSelectRestaurant,
+           let match = restaurantSearchIndex?.search(meaningfulQuery, limit: 500)
+            .first(where: { "restaurant:\($0.id)" == sourceID }),
+           let selection = match.restaurantSelection {
+            onSelectRestaurant(selection, match.title)
+            return true
+        }
+        return false
+    }
+
+    private func sourceTitle(_ sourceID: String) -> String {
+        if sourceID.hasPrefix("ausnut:") {
+            let foodID = String(sourceID.dropFirst("ausnut:".count))
+            return AustralianNutritionService.identity(forID: foodID)?.name ?? sourceID
+        }
+        if sourceID.hasPrefix("restaurant:"),
+           let match = restaurantSearchIndex?.search(meaningfulQuery, limit: 500)
+            .first(where: { "restaurant:\($0.id)" == sourceID }) {
+            return match.title
+        }
+        return sourceID
+    }
+
+    private var conceptLabels: [String: String] {
+        FoodConsumerLabels.choices(currentCandidateSourceIDs.map {
+            (id: $0, name: sourceTitle($0))
+        })
+    }
+
+    private var discoveryLabels: [String: String] {
+        FoodConsumerLabels.choices(suggestions.compactMap { result in
+            guard case .ausnut(let food) = result else { return nil }
+            return (id: food.id, name: food.title)
+        })
+    }
+
+    private var conceptNeedsSourceBadge: Bool {
+        let ids = currentCandidateSourceIDs
+        return ids.contains(where: { $0.hasPrefix("ausnut:") })
+            && ids.contains(where: { $0.hasPrefix("restaurant:") })
+    }
+
+    private func beginConceptChoices(_ route: FoodConceptSearchRoute) {
+        currentCandidateSourceIDs = route.candidateSourceIDs
+        usedClarificationDimensions = []
+        selectedClarificationPath = []
+        clarificationContext = nil
+        currentClarificationPlan = clarificationPlan(for: currentCandidateSourceIDs)
+        showingAllConceptChoices = false
+        conceptChoiceState = .choosing
+        isFocused = false
+    }
+
+    private func clarificationPlan(for sourceIDs: [String]) -> FoodClarificationPlan? {
+        switch conceptRoute {
+        case .clarification?, .unknownVariant?: break
+        default: return nil
+        }
+        return FoodClarificationPlan.make(
+            query: meaningfulQuery,
+            sources: sourceIDs.map { (id: $0, name: sourceTitle($0)) },
+            excluding: usedClarificationDimensions
+        )
+    }
+
+    private func choose(_ option: FoodClarificationPlan.Option) {
+        if let sourceID = option.resolvedSourceID {
+            _ = selectSource(sourceID)
+            return
+        }
+        if let dimension = currentClarificationPlan?.dimension {
+            selectedClarificationPath.append(.init(dimension: dimension, key: option.key))
+        }
+        currentCandidateSourceIDs = option.sourceIDs
+        if let dimension = currentClarificationPlan?.dimension {
+            usedClarificationDimensions.insert(dimension)
+        }
+        let stop = FoodClarificationStopPolicy.decide(
+            sources: option.sourceIDs.map { (id: $0, name: sourceTitle($0)) },
+            selections: selectedClarificationPath
+        )
+        switch stop {
+        case .stop(let sourceID), .optionalRefinement(let sourceID, _):
+            if selectSource(sourceID) { return }
+        case .required:
+            break
+        }
+        clarificationContext = option.label
+        currentClarificationPlan = clarificationPlan(for: option.sourceIDs)
+        showingAllConceptChoices = false
+    }
+
+    private func handleAnalyse() {
+        guard let conceptRoute else {
+            onSubmit(meaningfulQuery)
+            return
+        }
+        switch conceptRoute {
+        case .sourced(let sourceID, _):
+            if !selectSource(sourceID) { beginConceptChoices(conceptRoute) }
+        case .clarification, .unknownVariant, .weakAlternatives:
+            beginConceptChoices(conceptRoute)
+        case .analyse(let query):
+            onSubmit(query)
+        }
     }
 
     private var isBrandOnlyQuery: Bool {
@@ -55,7 +188,7 @@ struct TextFoodInputView: View {
 
     private var analyseButton: some View {
         Button {
-            onSubmit(meaningfulQuery)
+            handleAnalyse()
         } label: {
             Text(analyseLabel)
                 .font(suggestions.isEmpty ? .headline : .subheadline.weight(.medium))
@@ -68,6 +201,113 @@ struct TextFoodInputView: View {
         .frame(height: 50)
         .disabled(meaningfulQuery.isEmpty)
         .accessibilityIdentifier("searchFood.analyse")
+    }
+
+    private var conceptChoices: some View {
+        let labels = conceptLabels
+        let showSourceBadge = conceptNeedsSourceBadge
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if let unresolvedConcept = conceptChoiceState.explicitEstimateQuery {
+                    Text("\(unresolvedConcept) — variety not specified")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(12)
+                    Text("No sourced nutrition is selected yet.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                    Button("Choose a variety") {
+                        conceptChoiceState = .choosing
+                    }
+                    .padding(12)
+                    Button("Estimate instead") {
+                        (onEstimate ?? onSubmit)(unresolvedConcept)
+                    }
+                    .padding(12)
+                } else {
+                    if let plan = currentClarificationPlan {
+                        Text(plan.question)
+                            .font(.subheadline.weight(.semibold))
+                            .padding(12)
+                    } else if conceptRoute?.isWeakAlternative == true {
+                        Text("Sourced alternatives")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(12)
+                    } else {
+                        Text(clarificationContext.map { "Which \($0.lowercased())?" } ?? "Which one did you mean?")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(12)
+                    }
+                    if let conceptRoute {
+                        if let plan = currentClarificationPlan {
+                            ForEach(plan.options) { option in
+                                Button {
+                                    choose(option)
+                                } label: {
+                                    Text(option.label)
+                                        .font(.subheadline)
+                                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("searchFood.group.\(option.id)")
+                                Divider()
+                            }
+                        } else {
+                            ForEach(Array(currentCandidateSourceIDs.prefix(
+                                showingAllConceptChoices ? currentCandidateSourceIDs.count : 8
+                            )), id: \.self) { sourceID in
+                                Button {
+                                    _ = selectSource(sourceID)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(labels[sourceID] ?? sourceTitle(sourceID))
+                                            .font(.subheadline)
+                                            .multilineTextAlignment(.leading)
+                                        if showSourceBadge {
+                                            Text(sourceID.hasPrefix("ausnut:") ? "Australian food data" : "Verified restaurant")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("searchFood.concept.\(sourceID)")
+                                Divider()
+                            }
+                            if !showingAllConceptChoices && currentCandidateSourceIDs.count > 8 {
+                                Button("Show all sourced choices") {
+                                    showingAllConceptChoices = true
+                                }
+                                .frame(minHeight: 44)
+                                .padding(.horizontal, 12)
+                            }
+                        }
+                        if conceptRoute.allowsExplicitEstimate {
+                            Button("Not sure") {
+                                conceptChoiceState.notSure(about: conceptRoute)
+                            }
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, 12)
+                            .accessibilityIdentifier("searchFood.concept.notSure")
+                        }
+                        if case .weakAlternatives(let query, _) = conceptRoute {
+                            Button("Estimate instead") {
+                                (onEstimate ?? onSubmit)(query)
+                            }
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, 12)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(height: suggestionAreaHeight)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 
     var body: some View {
@@ -106,7 +346,9 @@ struct TextFoodInputView: View {
                     .fill(Color(.quaternarySystemFill))
             )
 
-            if onSelectRestaurant != nil {
+            if conceptChoiceState != .discovery {
+                conceptChoices
+            } else if onSelectRestaurant != nil {
                 ScrollView {
                     VStack(spacing: 0) {
                         if suggestions.isEmpty {
@@ -166,7 +408,7 @@ struct TextFoodInputView: View {
                                             Image(systemName: "leaf.circle")
                                                 .foregroundStyle(.secondary)
                                             VStack(alignment: .leading, spacing: 2) {
-                                                Text(suggestion.title)
+                                                Text(discoveryLabels[suggestion.id] ?? suggestion.title)
                                                     .font(.subheadline.weight(.medium))
                                                     .foregroundStyle(.primary)
                                                     .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 2)
@@ -189,6 +431,14 @@ struct TextFoodInputView: View {
                                 Divider().padding(.leading, 44)
                             }
                         }
+                        if case .sourced(_, let refinements)? = conceptRoute,
+                           !refinements.isEmpty {
+                            Button("See other sourced varieties") {
+                                if let conceptRoute { beginConceptChoices(conceptRoute) }
+                            }
+                            .frame(minHeight: 44)
+                            .padding(.horizontal, 12)
+                        }
                     }
                 }
                 // An anchored popover repositions when its intrinsic height changes.
@@ -197,18 +447,22 @@ struct TextFoodInputView: View {
                 .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
             }
 
-            if isBrandOnlyQuery {
+            if conceptChoiceState.explicitEstimateQuery != nil {
+                EmptyView()
+            } else if isBrandOnlyQuery && conceptChoiceState == .discovery {
                 Text("Choose a verified item above")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
-            } else {
+            } else if conceptChoiceState == .discovery {
                 if suggestions.isEmpty {
                     analyseButton.buttonStyle(.borderedProminent)
                 } else {
                     analyseButton.buttonStyle(.bordered)
                 }
+            } else if case .sourced? = conceptRoute {
+                analyseButton.buttonStyle(.borderedProminent)
             }
 
             Button("Cancel") {

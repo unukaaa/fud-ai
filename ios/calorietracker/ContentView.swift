@@ -1584,7 +1584,18 @@ private var dailyStepsTaskKey: String {
                                     currentEmoji = nil
                                     currentFoodSource = .textInput
                                     afterLoggingPresentationDismisses {
-                                        startTextAnalysis(description)
+                                        startTextAnalysis(description, consumerSearchFallback: true)
+                                    }
+                                },
+                                onEstimate: { description in
+                                    showTextPopover = false
+                                    currentImage = nil
+                                    currentImages = []
+                                    currentEmoji = nil
+                                    currentFoodSource = .textInput
+                                    afterLoggingPresentationDismisses {
+                                        startTextAnalysis(description, allowRestaurantLookup: false,
+                                                          consumerSearchFallback: true)
                                     }
                                 },
                                 onSelectRestaurant: { selection, title in
@@ -2440,7 +2451,8 @@ private var dailyStepsTaskKey: String {
     private func startTextAnalysis(
         _ description: String,
         allowClarification: Bool = true,
-        allowRestaurantLookup: Bool = true
+        allowRestaurantLookup: Bool = true,
+        consumerSearchFallback: Bool = false
     ) {
         retryRequest = .text(description)
         presentFoodLogLoading(.analyzingText)
@@ -2507,7 +2519,7 @@ private var dailyStepsTaskKey: String {
                 // User tapped Cancel on the analyzing sheet; cancelAnalysis already reset the UI.
             } catch {
                 if Task.isCancelled { return }
-                presentAnalysisError(error)
+                presentAnalysisError(error, consumerSearchFallback: consumerSearchFallback)
             }
         }
     }
@@ -2572,7 +2584,7 @@ private var dailyStepsTaskKey: String {
     /// animation finishes. Presenting both in the same turn makes SwiftUI flash
     /// or drop the alert.
     @MainActor
-    private func presentAnalysisError(_ error: Error) {
+    private func presentAnalysisError(_ error: Error, consumerSearchFallback: Bool = false) {
         foodLogPhase = .result
         activeSheet = nil
         if let quotaError = error as? HostedAIQuotaError {
@@ -2591,7 +2603,8 @@ private var dailyStepsTaskKey: String {
                 break
             }
         }
-        errorMessage = GeminiService.analysisErrorMessage(error)
+        errorMessage = (consumerSearchFallback ? SearchFoodAIUnavailableMessage.message(for: error) : nil)
+            ?? GeminiService.analysisErrorMessage(error)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
             showError = true
         }
@@ -2692,7 +2705,7 @@ private struct AUSNUTPortionView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(prompt.identity.name)
+                    Text(FoodConsumerLabels.food(prompt.identity.name))
                         .font(.title3.bold())
                         .accessibilityIdentifier("ausnutPortion.foodName")
                     Text("AUSNUT 2023 · Food Standards Australia New Zealand")
@@ -2791,7 +2804,7 @@ private struct AUSNUTMeasureButton: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(choice.title)
+                    Text(FoodConsumerLabels.portion(choice.title))
                         .fixedSize(horizontal: false, vertical: true)
                     Text("\(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) g")
                         .font(.caption)
@@ -2806,7 +2819,7 @@ private struct AUSNUTMeasureButton: View {
         }
         .buttonStyle(.bordered)
         .tint(isSelected ? AppColors.calorie : .secondary)
-        .accessibilityLabel("\(choice.title), \(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) grams")
+        .accessibilityLabel("\(FoodConsumerLabels.portion(choice.title)), \(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) grams")
         .accessibilityValue(isSelected ? "Selected" : "")
         .accessibilityIdentifier("ausnutPortion.measure.\(choice.measureID.map(String.init) ?? "index-\(choice.index)")")
     }

@@ -97,7 +97,7 @@ struct ServingUnitEditor: View {
         if option.normalizedUnit == "serving" {
             return String(localized: "Serving")
         }
-        return option.displayUnit(for: quantity)
+        return FoodConsumerLabels.portion(option.displayUnit(for: quantity))
     }
 
     private func syncQuantityTextToSelectedUnit() {
