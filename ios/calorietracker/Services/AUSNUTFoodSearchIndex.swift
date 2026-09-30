@@ -162,7 +162,16 @@ struct AUSNUTFoodSearchIndex: Sendable {
         if scoped.count > 1 { return unresolved(text, entries: scoped, reason: .overlappingNFDScopes) }
 
         let candidates = entries.filter { entry in
-            entry.familyHead == query || (queryTokens.count > 1 && entry.normalizedName.hasPrefix(query + " "))
+            let familyTokens = entry.familyHead.split(separator: " ").map(String.init)
+            // A user can put a source-backed qualifier before its family name
+            // ("dark chocolate" vs "Chocolate, dark, ..."). Match whole source
+            // tokens only; this finds candidates without selecting nutrition.
+            let qualifiedFamily = queryTokens.count > 1
+                && familyTokens.allSatisfy { queryTokens.contains($0) }
+                && queryTokens.allSatisfy { entry.tokens.contains($0) }
+            return entry.familyHead == query
+                || (queryTokens.count > 1 && entry.normalizedName.hasPrefix(query + " "))
+                || qualifiedFamily
         }
         guard candidates.count > 1 else { return .unmatched(text) }
         return unresolved(text, entries: candidates, reason: .unresolvedFamily)

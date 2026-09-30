@@ -19,6 +19,26 @@ struct FoodConceptSearchRouteTests {
         #expect(!refinements.contains("ausnut:16802002"))
     }
 
+    @Test func directQualifiedChocolateRoutesToExactSourcedChoicesBeforeAI() throws {
+        let index = try index()
+        let direct = FoodConceptSearchRoute(index.assessIdentity("dark chocolate"),
+                                            suggestions: index.search("dark chocolate", limit: 5))
+        let alternatives: [String]
+        switch direct {
+        case .clarification(let ids), .unknownVariant(_, let ids): alternatives = ids
+        default:
+            Issue.record("Dark chocolate must keep sourced identities unresolved, not route to AI")
+            return
+        }
+        #expect(alternatives.contains("ausnut:28101001"))
+        #expect(alternatives.contains("ausnut:28101002"))
+        #expect(!alternatives.contains("ausnut:28101004"))
+        #expect(direct.candidateSourceIDs == alternatives)
+        let source = try #require(AustralianNutritionService.identity(forID: "28101001"))
+        #expect(source.id == "28101001")
+        #expect(source.name.contains(">60%"))
+    }
+
     @Test func bananaRemainsUnresolvedUntilVarietyOrExplicitEstimate() throws {
         let route = FoodConceptSearchRoute(try index().assessIdentity("banana"))
         guard case .unknownVariant(let query, let alternatives) = route else {
@@ -134,5 +154,35 @@ struct FoodConceptSearchRouteTests {
         }
         #expect(wrongConfident == 0)
         print("Food Concept routing benchmark: 15 queries, \(sourced) exact sourced, \(unresolved) unresolved, \(aiFallback) AI fallback, \(wrongConfident) wrong confident")
+    }
+
+    @Test func routingCleanupBenchmarkPreservesSpecificAndBroadIntent() throws {
+        let index = try index()
+        let queries = ["dark chocolate", "chocolate", "milk chocolate",
+                       "raw apple", "apple", "stewed apple"]
+        var wrongConfident = 0
+        for query in queries {
+            let assessment = index.assessIdentity(query)
+            let route = FoodConceptSearchRoute(assessment, suggestions: index.search(query, limit: 5))
+            if query == "raw apple" {
+                #expect(route == .sourced("ausnut:16101015", refinements: assessment.candidateSourceIDs
+                    .filter { $0 != "ausnut:16101015" }))
+            } else {
+                if case .sourced = route { wrongConfident += 1 }
+            }
+            if query == "dark chocolate" {
+                #expect(route.candidateSourceIDs.contains("ausnut:28101001"))
+                #expect(route.candidateSourceIDs.contains("ausnut:28101002"))
+            }
+            if query == "milk chocolate" {
+                #expect(route.candidateSourceIDs.contains("ausnut:28101004"))
+            }
+            if query == "stewed apple" {
+                #expect(assessment.defaultSourceID != "ausnut:16101015")
+            }
+            print("ROUTING_CLEANUP_BENCHMARK query=\(query) state=\(assessment.state) route=\(route)")
+        }
+        #expect(wrongConfident == 0)
+        print("ROUTING_CLEANUP_BENCHMARK_SUMMARY queries=\(queries.count) wrongConfident=\(wrongConfident)")
     }
 }

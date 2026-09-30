@@ -24,6 +24,17 @@ struct FoodConceptIdentityAssessmentTests {
         #expect(bare.state == .unknownVariant)
     }
 
+    @Test func directDarkChocolateKeepsBothSourceBackedCocoaIdentities() throws {
+        let index = try ausnut()
+        let dark = index.assessIdentity("dark chocolate")
+        #expect(dark.defaultSourceID == nil)
+        #expect(dark.state != .noTrustedMatch)
+        #expect(dark.candidateSourceIDs.contains("ausnut:28101001"))
+        #expect(dark.candidateSourceIDs.contains("ausnut:28101002"))
+        #expect(!dark.candidateSourceIDs.contains("ausnut:28101004"))
+        #expect(Set(dark.candidateSourceIDs).isSubset(of: Set(index.assessIdentity("chocolate").candidateSourceIDs)))
+    }
+
     @Test func bananaCannotInheritCavendishNutritionFromSearchOrder() throws {
         let assessment = try ausnut().assessIdentity("banana")
         #expect(assessment.state == .unknownVariant)

@@ -159,6 +159,22 @@ struct FoodClarificationStopPolicyTests {
             == .sourced("restaurant:item:kfc-au-zinger-burger", refinements: []))
     }
 
+    @Test func choosingRawAppleStopsAtEstablishedScopedNFD() throws {
+        let sources = try candidates("apple")
+        let first = try #require(FoodClarificationPlan.make(query: "apple", sources: sources))
+        #expect(first.dimension == .cookingState)
+        let raw = try #require(first.options.first { $0.key == "raw" })
+        let result = FoodClarificationStopPolicy.decide(
+            sources: narrowed(raw, from: sources),
+            selections: [.init(dimension: first.dimension, key: raw.key)]
+        )
+        guard case .optionalRefinement(let sourceID, _) = result else {
+            Issue.record("Established raw-Apple NFD should proceed to Portion: \(result)")
+            return
+        }
+        #expect(sourceID == "ausnut:16101015")
+    }
+
     @Test func representativeDepthAuditKeepsUnresolvedCasesUnresolved() throws {
         let index = UnifiedFoodSearchIndex(restaurants: RestaurantFoodSearchIndex.bundled(),
                                            ausnut: AUSNUTFoodSearchIndex.bundled())
