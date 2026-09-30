@@ -19,9 +19,26 @@ struct AUSNUTFoodMeasure: Decodable, Equatable, Sendable {
     let name: String
     let quantity: Double
     let grams: Double
+    /// Source identity and context remain attached to the containing Survey ID.
+    let measureID: Int?
+    let descriptors: [String?]?
+    let volume: Double?
+
+    nonisolated init(
+        name: String, quantity: Double, grams: Double, measureID: Int? = nil,
+        descriptors: [String?]? = nil, volume: Double? = nil
+    ) {
+        self.name = name
+        self.quantity = quantity
+        self.grams = grams
+        self.measureID = measureID
+        self.descriptors = descriptors
+        self.volume = volume
+    }
 
     private enum CodingKeys: String, CodingKey {
         case name = "n", quantity = "q", grams = "g"
+        case measureID = "mid", descriptors = "d", volume = "v"
     }
 }
 
@@ -203,5 +220,136 @@ struct AUSNUTPortionChoice: Identifiable, Equatable {
                         title: duplicate ? "\(measure.name) · \(weight) g each" : measure.name,
                         grams: grams)
         }
+    }
+}
+
+/// Presentation metadata only. The original measure index remains the selection key.
+struct AUSNUTPresentedMeasure: Identifiable, Equatable {
+    let index: Int
+    let measureID: Int?
+    let title: String
+    let sourceQuantity: Double
+    let sourceGrams: Double
+    let sourceVolume: Double?
+
+    var id: Int { index }
+    var gramsPerUnit: Double { sourceGrams / sourceQuantity }
+    var portion: AUSNUTPortion { .measure(index: index, quantity: 1) }
+}
+
+/// Keeps the complete source set while exposing a small, diverse first group.
+struct AUSNUTPortionPresentation {
+    let primary: [AUSNUTPresentedMeasure]
+    let more: [AUSNUTPresentedMeasure]
+
+    /// Four short choices fit the existing mobile sheet without treating source order as priority.
+    static let primaryLimit = 4
+
+    static func make(for food: AUSNUTFoodIdentity) -> Self {
+        let valid = food.measures.enumerated().filter { _, measure in
+            !measure.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && measure.quantity.isFinite && measure.quantity > 0
+                && measure.grams.isFinite && measure.grams > 0
+        }
+        let baseTitles = valid.map { _, measure in contextualTitle(for: measure, foodName: food.name) }
+        let baseCounts = Dictionary(grouping: baseTitles.map { $0.lowercased() }, by: { $0 })
+            .mapValues(\.count)
+        var options = valid.enumerated().map { position, indexed -> AUSNUTPresentedMeasure in
+            let (index, measure) = indexed
+            var title = baseTitles[position]
+            if baseCounts[title.lowercased(), default: 0] > 1 {
+                let volume = (measure.volume ?? 0) / measure.quantity
+                let amount = volume > 0 ? "\(formatted(volume)) mL" : "\(formatted(measure.grams / measure.quantity)) g"
+                title += " · \(amount)"
+            }
+            return AUSNUTPresentedMeasure(
+                index: index, measureID: measure.measureID, title: title,
+                sourceQuantity: measure.quantity, sourceGrams: measure.grams,
+                sourceVolume: measure.volume
+            )
+        }
+        // If distinct source measures still have the same visible size, use the
+        // upstream Measure ID, not a guessed product or serving distinction.
+        let titleCounts = Dictionary(grouping: options.map { $0.title.lowercased() }, by: { $0 })
+            .mapValues(\.count)
+        options = options.map { option in
+            guard titleCounts[option.title.lowercased(), default: 0] > 1 else { return option }
+            let suffix = option.measureID.map { "AUSNUT measure \($0)" } ?? "option \(option.index + 1)"
+            return AUSNUTPresentedMeasure(
+                index: option.index, measureID: option.measureID,
+                title: "\(option.title) · \(suffix)", sourceQuantity: option.sourceQuantity,
+                sourceGrams: option.sourceGrams, sourceVolume: option.sourceVolume
+            )
+        }
+
+        let ranked = options.sorted { left, right in
+            let leftScore = score(food.measures[left.index], foodName: food.name)
+            let rightScore = score(food.measures[right.index], foodName: food.name)
+            return leftScore == rightScore ? left.index < right.index : leftScore > rightScore
+        }
+        var primary: [AUSNUTPresentedMeasure] = []
+        var forms: Set<String> = []
+        for option in ranked {
+            let form = firstDescriptor(food.measures[option.index])
+            guard forms.insert(form).inserted else { continue }
+            primary.append(option)
+            if primary.count == primaryLimit { break }
+        }
+        if primary.count < primaryLimit {
+            let chosen = Set(primary.map(\.index))
+            primary += ranked.filter { !chosen.contains($0.index) }.prefix(primaryLimit - primary.count)
+        }
+        let chosen = Set(primary.map(\.index))
+        return Self(primary: primary, more: ranked.filter { !chosen.contains($0.index) })
+    }
+
+    private static let commonForms: Set<String> = [
+        "bar", "block", "bottle", "bowl", "can", "container", "cup", "glass",
+        "handful", "mug", "packet", "piece", "roll", "row", "slice", "square",
+        "tablespoon", "teaspoon"
+    ]
+
+    private static func firstDescriptor(_ measure: AUSNUTFoodMeasure) -> String {
+        let first = measure.descriptors?.compactMap { $0 }.first
+            ?? measure.name.split(separator: " ").first.map(String.init) ?? ""
+        return first.lowercased()
+    }
+
+    private static func contextualTitle(for measure: AUSNUTFoodMeasure, foodName: String) -> String {
+        let form = firstDescriptor(measure)
+        let foodWords = Set(foodName.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .split(separator: " ").map(String.init))
+        let formWords = form.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .split(separator: " ").map(String.init)
+        if commonForms.contains(form) || formWords.allSatisfy(foodWords.contains) {
+            return measure.name
+        }
+        return "\(foodName) · \(measure.name)"
+    }
+
+    private static func score(_ measure: AUSNUTFoodMeasure, foodName: String) -> Int {
+        let parts = measure.descriptors?.compactMap { $0?.lowercased() }
+            ?? measure.name.split(separator: " ").map { $0.lowercased() }
+        let form = firstDescriptor(measure)
+        let qualifiers = parts.dropFirst()
+        var result = commonForms.contains(form) ? 8 : 0
+        let foodWords = Set(foodName.lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .split(separator: " ").map(String.init))
+        let formWords = form.replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .split(separator: " ").map(String.init)
+        if !formWords.isEmpty && formWords.allSatisfy(foodWords.contains) { result += 4 }
+        if qualifiers.contains("regular") || qualifiers.contains("medium") { result += 6 }
+        if parts.count == 1 { result += 2 }
+        result -= max(0, parts.count - 1)
+        if measure.descriptors?.last.flatMap({ $0 }) != nil { result -= 2 }
+        if commonForms.contains(form), (measure.volume ?? 0) > 0 { result += 1 }
+        if measure.grams / measure.quantity < 1 || measure.grams / measure.quantity > 1_000 { result -= 1 }
+        return result
+    }
+
+    private static func formatted(_ value: Double) -> String {
+        value.formatted(.number.precision(.fractionLength(0...6)))
     }
 }
