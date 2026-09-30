@@ -2660,20 +2660,24 @@ private struct AUSNUTPortionPrompt: Identifiable {
     let id = UUID()
     let selection: AUSNUTFoodSelection
     let identity: AUSNUTFoodIdentity
+    let presentation: AUSNUTPortionPresentation
+
+    init(selection: AUSNUTFoodSelection, identity: AUSNUTFoodIdentity) {
+        self.selection = selection
+        self.identity = identity
+        presentation = AUSNUTPortionPresentation.make(for: identity)
+    }
 }
 
 private struct AUSNUTPortionView: View {
     let prompt: AUSNUTPortionPrompt
     let onResolve: (AUSNUTPortion) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedMeasureIndex: Int?
+    @State private var selectedMeasure: AUSNUTPresentedMeasure?
     @State private var usingGrams = false
+    @State private var showingMore = false
     @State private var gramsText = ""
     @FocusState private var gramsFocused: Bool
-
-    private var choices: [AUSNUTPortionChoice] {
-        AUSNUTPortionChoice.choices(for: prompt.identity)
-    }
 
     private var selectedPortion: AUSNUTPortion? {
         if usingGrams {
@@ -2681,8 +2685,7 @@ private struct AUSNUTPortionView: View {
                   grams.isFinite, grams > 0 else { return nil }
             return .grams(grams)
         }
-        guard let index = selectedMeasureIndex else { return nil }
-        return .measure(index: index, quantity: 1)
+        return selectedMeasure?.portion
     }
 
     var body: some View {
@@ -2697,47 +2700,60 @@ private struct AUSNUTPortionView: View {
                         .foregroundStyle(.secondary)
                     Text("How much did you have?")
                         .font(.headline)
-                    ForEach(choices) { choice in
-                        Button {
-                            selectedMeasureIndex = choice.index
-                            usingGrams = false
-                            gramsFocused = false
-                        } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(choice.title)
-                                    Text("About \(choice.grams.formatted(.number.precision(.fractionLength(0...1)))) g")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Image(systemName: !usingGrams && selectedMeasureIndex == choice.index
-                                      ? "checkmark.circle.fill" : "circle")
-                            }
-                            .frame(minHeight: 44)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(!usingGrams && selectedMeasureIndex == choice.index ? AppColors.calorie : .secondary)
-                        .accessibilityIdentifier("ausnutPortion.measure.\(choice.index)")
-                    }
-                    HStack(spacing: 12) {
-                        Image(systemName: usingGrams ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(usingGrams ? AppColors.calorie : .secondary)
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("Grams")
-                        Spacer()
+                            .font(.subheadline.weight(.semibold))
                         TextField("Enter grams", text: $gramsText)
                             .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
                             .focused($gramsFocused)
-                            .frame(width: 110)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Amount in grams")
                             .accessibilityIdentifier("ausnutPortion.grams")
                     }
-                    .padding(12)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                    .onTapGesture { usingGrams = true; selectedMeasureIndex = nil; gramsFocused = true }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: gramsFocused) { _, focused in
+                        if focused { usingGrams = true; selectedMeasure = nil }
+                    }
                     .onChange(of: gramsText) { _, newValue in
-                        if !newValue.isEmpty { usingGrams = true; selectedMeasureIndex = nil }
+                        if !newValue.isEmpty { usingGrams = true; selectedMeasure = nil }
+                    }
+                    if !prompt.presentation.primary.isEmpty {
+                        Text("Common portions")
+                            .font(.subheadline.weight(.semibold))
+                        ForEach(prompt.presentation.primary) { choice in
+                            AUSNUTMeasureButton(
+                                choice: choice,
+                                isSelected: !usingGrams && selectedMeasure?.measureID == choice.measureID
+                                    && selectedMeasure?.index == choice.index
+                            ) {
+                                selectedMeasure = choice
+                                usingGrams = false
+                                gramsFocused = false
+                            }
+                        }
+                    }
+                    if !prompt.presentation.more.isEmpty {
+                        DisclosureGroup(isExpanded: $showingMore) {
+                            VStack(spacing: 10) {
+                                ForEach(prompt.presentation.more) { choice in
+                                    AUSNUTMeasureButton(
+                                        choice: choice,
+                                        isSelected: !usingGrams && selectedMeasure?.measureID == choice.measureID
+                                            && selectedMeasure?.index == choice.index
+                                    ) {
+                                        selectedMeasure = choice
+                                        usingGrams = false
+                                        gramsFocused = false
+                                    }
+                                }
+                            }
+                            .padding(.top, 10)
+                        } label: {
+                            Text("More portions (\(prompt.presentation.more.count))")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("ausnutPortion.more")
                     }
                 }
                 .padding(22)
@@ -2763,6 +2779,36 @@ private struct AUSNUTPortionView: View {
         }
         .presentationDetents([.medium, .large])
         .presentationContentInteraction(.scrolls)
+    }
+}
+
+private struct AUSNUTMeasureButton: View {
+    let choice: AUSNUTPresentedMeasure
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(choice.title)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) g")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.bordered)
+        .tint(isSelected ? AppColors.calorie : .secondary)
+        .accessibilityLabel("\(choice.title), \(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) grams")
+        .accessibilityValue(isSelected ? "Selected" : "")
+        .accessibilityIdentifier("ausnutPortion.measure.\(choice.measureID.map(String.init) ?? "index-\(choice.index)")")
     }
 }
 
