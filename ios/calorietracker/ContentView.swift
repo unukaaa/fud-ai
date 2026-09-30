@@ -2548,7 +2548,8 @@ private var dailyStepsTaskKey: String {
                 foodLogPhase = .result
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                     clarificationPrompt = SmartClarificationPrompt(
-                        originalText: title, restaurantMatch: match, restaurantSelection: selection
+                        originalText: title, restaurantMatch: match,
+                        restaurantSelection: resolution.restaurantSelection ?? selection
                     )
                 }
             } else if let result = resolution.analysis {

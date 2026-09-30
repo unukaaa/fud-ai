@@ -62,6 +62,42 @@ struct RestaurantFoodSelectionTests {
         #expect(completed.analysis?.calories == 156)
     }
 
+    @Test func selectedConfiguredMealBecomesTheContinuationIdentity() async throws {
+        let burger = try product("Zinger", itemID: "kfc-au-zinger-burger")
+        let burgerSelection = try #require(burger.restaurantSelection)
+        #expect(burgerSelection.restaurantID == "kfc_au")
+        let order = await FoodQueryResolutionService.resolve(selection: burgerSelection)
+        #expect(order.restaurantMatch?.menuItem.id == "kfc-au-zinger-burger")
+        #expect(order.restaurantMatch?.clarificationPlan.groups.map(\.id) == ["order"])
+
+        let box = await FoodQueryResolutionService.resolve(
+            selection: burgerSelection, clarificationAnswer: "Order: Zinger Box"
+        )
+        #expect(box.restaurantMatch?.menuItem.id == "kfc-au-zinger-box-regular")
+        #expect(box.restaurantMatch?.menuItem.mealConfigurations.first?.id
+                == "kfc-au-zinger-box-regular-components")
+        #expect(box.restaurantMatch?.clarificationPlan.groups.map(\.id)
+                == ["chicken", "first-side", "second-side", "drink"])
+        let boxSelection = try #require(box.restaurantSelection)
+        #expect(boxSelection.restaurantID == "kfc_au")
+        #expect(boxSelection.itemID == "kfc-au-zinger-box-regular")
+        #expect(boxSelection.variantID == nil)
+
+        let completed = await FoodQueryResolutionService.resolve(
+            selection: boxSelection,
+            clarificationAnswer: "Chicken: 3 Wicked Wings; First side: Regular Chips; Second side: Regular Potato & Gravy; Drink: Regular Pepsi Max"
+        )
+        #expect(completed.restaurantSelection == boxSelection)
+        #expect(completed.restaurantMatch?.menuItem.id == "kfc-au-zinger-box-regular")
+        #expect(completed.restaurantMatch?.clarificationPlan.isEmpty == true)
+        #expect(completed.restaurantMatch?.resolvedComponents.map(\.groupID)
+                == ["chicken", "first-side", "second-side", "drink"])
+        #expect(completed.restaurantMatch?.resolvedComponents.map(\.sourceItemID)
+                == ["kfc-au-3-wicked-wings", "kfc-au-regular-chips", "kfc-au-potato-gravy", "kfc-au-regular-pepsi-max"])
+        #expect(completed.analysis?.calories == 1026)
+        #expect(completed.analysis?.nutritionSource == "Verified restaurant nutrition")
+    }
+
     @Test func staleOrWrongIDsNeverFallBackToTextOrAI() async throws {
         let index = try #require(RestaurantFoodSearchIndex.bundled())
         #expect(index.search("KFC").first?.restaurantSelection == nil)

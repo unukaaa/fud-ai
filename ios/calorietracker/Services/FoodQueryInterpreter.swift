@@ -582,7 +582,7 @@ enum FoodQueryResolutionService {
     }
 
     /// A search selection never falls back to text matching or AI if its IDs
-    /// are stale. Keep the same selection for a clarification continuation.
+    /// are stale. Carry the resolved source selection into each continuation.
     static func resolve(
         selection: RestaurantFoodSelection,
         clarificationAnswer: String? = nil,
@@ -602,6 +602,15 @@ enum FoodQueryResolutionService {
         }
         let analysis = match.foodAnalysis
         let component = restaurantComponent(query: match.menuItem.name, match: match, analysis: analysis)
+        // A meal choice can change the menu item itself. Carry that exact item
+        // into subsequent answers, while preserving the existing parent
+        // selection contract for a size/variant of the same item.
+        let continuationSelection = match.menuItem.id == selection.itemID ? selection
+            : RestaurantFoodSelection(
+                restaurantID: match.restaurant.id,
+                itemID: match.menuItem.id,
+                variantID: match.selectedVariant?.id
+            )
         var tracked = analysis
         tracked?.foodResolutionComponents = [component]
         return FoodQueryResolution(
@@ -609,7 +618,7 @@ enum FoodQueryResolutionService {
             route: FoodIntentRoute(state: .resolvedFood, foodIdentity: match.menuItem.name,
                                    brandID: match.restaurant.id, locationContext: nil,
                                    matchedMenuItems: [match.menuItem.name]),
-            restaurantSelection: selection
+            restaurantSelection: continuationSelection
         )
     }
 
