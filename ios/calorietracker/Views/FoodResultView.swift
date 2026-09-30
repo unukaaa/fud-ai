@@ -129,6 +129,13 @@ struct FoodResultView: View {
         ServingAmountExpression.evaluate(servingSizeText)
     }
 
+    private var ausnutSourcePresentation: AUSNUTSourcePresentation {
+        AUSNUTSourcePresentation(
+            source: nutritionSource, confidence: nutritionConfidence,
+            ingredients: editableIngredients
+        )
+    }
+
     private var sourceBadge: String {
         if nutritionProvenance.classification == .unknown {
             return FoodNutritionProvenance.legacyDisplaySource
@@ -144,14 +151,14 @@ struct FoodResultView: View {
             return "⚠️ Partially verified" + restaurantSuffix
         }
         if nutritionSource == "AUSNUT Australia" {
-            return nutritionConfidence == "High" ? "✓ AUSNUT" : "⚠️ Partially AUSNUT"
+            return ausnutSourcePresentation.badge ?? "⚠️ Partially AUSNUT"
         }
         if nutritionConfidence == "Low" { return "✨ AI estimate" }
         return "⚠️ Check estimate"
     }
 
     private var isFullyVerifiedSource: Bool {
-        (nutritionSource == "AUSNUT Australia" && nutritionConfidence == "High")
+        (nutritionSource == "AUSNUT Australia" && ausnutSourcePresentation.coverage == .full)
             || (nutritionSource == "Verified restaurant nutrition"
                 && nutritionConfidence == "High"
                 && proteinIsKnown
