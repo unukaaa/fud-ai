@@ -62,6 +62,38 @@ struct AUSNUTFoodSelection: Equatable, Sendable {
     let foodID: String
 }
 
+/// Identity evidence only: an unresolved assessment never contains nutrient values.
+struct FoodConceptIdentityAssessment: Equatable, Sendable {
+    enum State: Hashable, Sendable { case defaultable, clarificationRequired, unknownVariant, noTrustedMatch }
+    enum Dimension: Hashable, Sendable { case preparation, variant, source }
+    enum Reason: Equatable, Sendable {
+        case exactSourceName, scopedNFD, duplicateSourceName, overlappingNFDScopes
+        case unresolvedFamily, noSourceCandidate, exactRestaurant, restaurantBrand, crossSourceCollision
+    }
+
+    let query: String
+    let state: State
+    let defaultSourceID: String?
+    let candidateSourceIDs: [String]
+    let nfdSourceID: String?
+    let unresolvedDimensions: Set<Dimension>
+    let reason: Reason
+    /// Optional refinement is meaningful only when a truthful default already exists.
+    let optionalRefinementAvailable: Bool
+
+    static func resolved(_ query: String, sourceID: String, reason: Reason) -> Self {
+        Self(query: query, state: .defaultable, defaultSourceID: sourceID,
+             candidateSourceIDs: [sourceID], nfdSourceID: nil, unresolvedDimensions: [],
+             reason: reason, optionalRefinementAvailable: false)
+    }
+
+    static func unmatched(_ query: String) -> Self {
+        Self(query: query, state: .noTrustedMatch, defaultSourceID: nil,
+             candidateSourceIDs: [], nfdSourceID: nil, unresolvedDimensions: [],
+             reason: .noSourceCandidate, optionalRefinementAvailable: false)
+    }
+}
+
 /// An explicit amount, never an inferred default serving.
 enum AUSNUTPortion: Equatable, Sendable {
     case grams(Double)
@@ -73,6 +105,8 @@ struct AUSNUTFoodSearchIndex: Sendable {
         let identity: AUSNUTFoodIdentity
         let normalizedName: String
         let tokens: [String]
+        let familyHead: String
+        let nfdScope: String?
         let order: Int
     }
 
@@ -81,8 +115,11 @@ struct AUSNUTFoodSearchIndex: Sendable {
     nonisolated init(identities: [AUSNUTFoodIdentity]) {
         entries = identities.enumerated().map { order, identity in
             let normalizedName = Self.normalize(identity.name)
+            let familyHead = Self.normalize(identity.name.split(separator: ",", maxSplits: 1)
+                .first.map(String.init) ?? identity.name)
             return Entry(identity: identity, normalizedName: normalizedName,
-                         tokens: normalizedName.split(separator: " ").map(String.init), order: order)
+                         tokens: normalizedName.split(separator: " ").map(String.init),
+                         familyHead: familyHead, nfdScope: Self.nfdScope(identity.name), order: order)
         }
     }
 
@@ -91,6 +128,77 @@ struct AUSNUTFoodSearchIndex: Sendable {
     }()
 
     static func bundled() -> AUSNUTFoodSearchIndex? { bundledIndex }
+
+    /// Assesses source identity only. It never chooses nutrition for an unresolved concept.
+    func assessIdentity(_ text: String) -> FoodConceptIdentityAssessment {
+        let query = Self.normalize(text)
+        guard !query.isEmpty else { return .unmatched(text) }
+
+        let exact = entries.filter { $0.normalizedName == query }
+        if exact.count == 1, let entry = exact.first {
+            return .resolved(text, sourceID: "ausnut:\(entry.identity.id)", reason: .exactSourceName)
+        }
+        if exact.count > 1 { return unresolved(text, entries: exact, reason: .duplicateSourceName) }
+
+        let queryTokens = query.split(separator: " ").map(String.init)
+        let scoped = entries.filter { entry in
+            guard let scope = entry.nfdScope else { return false }
+            let scopeTokens = scope.split(separator: " ").map(String.init)
+            return scopeTokens.sorted() == queryTokens.sorted()
+        }
+        if scoped.count == 1, let generic = scoped.first {
+            let family = entries.filter { entry in
+                entry.familyHead == generic.familyHead
+                    && queryTokens.allSatisfy { entry.tokens.contains($0) }
+            }
+            let sourceID = "ausnut:\(generic.identity.id)"
+            return FoodConceptIdentityAssessment(
+                query: text, state: .defaultable, defaultSourceID: sourceID,
+                candidateSourceIDs: family.map { "ausnut:\($0.identity.id)" }.sorted(),
+                nfdSourceID: sourceID, unresolvedDimensions: [], reason: .scopedNFD,
+                optionalRefinementAvailable: family.count > 1
+            )
+        }
+        if scoped.count > 1 { return unresolved(text, entries: scoped, reason: .overlappingNFDScopes) }
+
+        let candidates = entries.filter { entry in
+            entry.familyHead == query || (queryTokens.count > 1 && entry.normalizedName.hasPrefix(query + " "))
+        }
+        guard candidates.count > 1 else { return .unmatched(text) }
+        return unresolved(text, entries: candidates, reason: .unresolvedFamily)
+    }
+
+    private func unresolved(
+        _ query: String, entries candidates: [Entry], reason: FoodConceptIdentityAssessment.Reason
+    ) -> FoodConceptIdentityAssessment {
+        let preparations = Set(candidates.map { Self.preparationTerms($0.tokens) })
+        let differsByPreparation = preparations.count > 1
+        var dimensions: Set<FoodConceptIdentityAssessment.Dimension> = [.variant]
+        if differsByPreparation { dimensions.insert(.preparation) }
+        // A broad family is an intent, not one mandatory question. With additional
+        // query specificity, an unresolved preparation difference is actionable.
+        let isSpecific = Self.normalize(query).split(separator: " ").count > 1
+        return FoodConceptIdentityAssessment(
+            query: query, state: isSpecific && differsByPreparation ? .clarificationRequired : .unknownVariant,
+            defaultSourceID: nil,
+            candidateSourceIDs: candidates.map { "ausnut:\($0.identity.id)" }.sorted(),
+            nfdSourceID: nil, unresolvedDimensions: dimensions, reason: reason,
+            optionalRefinementAvailable: false
+        )
+    }
+
+    private static func preparationTerms(_ tokens: [String]) -> Set<String> {
+        let terms: Set<String> = ["raw", "uncooked", "cooked", "boiled", "baked", "fried",
+                                  "grilled", "roasted", "steamed", "poached", "stewed",
+                                  "frozen", "dried", "canned"]
+        return Set(tokens).intersection(terms)
+    }
+
+    nonisolated private static func nfdScope(_ name: String) -> String? {
+        guard name.range(of: "not further defined", options: .caseInsensitive) != nil else { return nil }
+        return normalize(name.replacingOccurrences(of: "not further defined", with: "",
+                                                   options: .caseInsensitive))
+    }
 
     func search(_ text: String, limit: Int = 5) -> [AUSNUTFoodSuggestion] {
         let query = Self.normalize(text)
@@ -171,6 +279,43 @@ enum UnifiedFoodSuggestion: Identifiable, Equatable {
 struct UnifiedFoodSearchIndex {
     let restaurants: RestaurantFoodSearchIndex?
     let ausnut: AUSNUTFoodSearchIndex?
+
+    /// An identity decision, not a change to existing Search Food discovery or nutrition routing.
+    func assessIdentity(_ text: String) -> FoodConceptIdentityAssessment {
+        let ordinary = ausnut?.assessIdentity(text) ?? .unmatched(text)
+        let restaurant = restaurants?.search(text, limit: Int.max) ?? []
+        let exact = restaurant.filter { $0.kind == .product && $0.matchReason == .exact }
+        if exact.count == 1, let product = exact.first {
+            let sourceID = "restaurant:\(product.id)"
+            guard ordinary.defaultSourceID == nil else {
+                return FoodConceptIdentityAssessment(
+                    query: text, state: .unknownVariant, defaultSourceID: nil,
+                    candidateSourceIDs: [sourceID, ordinary.defaultSourceID!].sorted(),
+                    nfdSourceID: nil, unresolvedDimensions: [.source],
+                    reason: .crossSourceCollision, optionalRefinementAvailable: false
+                )
+            }
+            return .resolved(text, sourceID: sourceID, reason: .exactRestaurant)
+        }
+        if exact.count > 1 {
+            return FoodConceptIdentityAssessment(
+                query: text, state: .clarificationRequired, defaultSourceID: nil,
+                candidateSourceIDs: exact.map { "restaurant:\($0.id)" }.sorted(),
+                nfdSourceID: nil, unresolvedDimensions: [.variant],
+                reason: .duplicateSourceName, optionalRefinementAvailable: false
+            )
+        }
+        if restaurant.first?.kind == .brand {
+            return FoodConceptIdentityAssessment(
+                query: text, state: .unknownVariant, defaultSourceID: nil,
+                candidateSourceIDs: restaurant.filter { $0.kind == .product }
+                    .map { "restaurant:\($0.id)" }.sorted(),
+                nfdSourceID: nil, unresolvedDimensions: [.variant],
+                reason: .restaurantBrand, optionalRefinementAvailable: false
+            )
+        }
+        return ordinary
+    }
 
     func search(_ text: String, limit: Int = 5) -> [UnifiedFoodSuggestion] {
         guard limit > 0 else { return [] }
