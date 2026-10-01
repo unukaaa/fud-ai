@@ -76,6 +76,7 @@ enum EstimateGroundingPolicy {
               Set(sources.map(\.sourceVersion)).count == 1,
               Set(records.map { family($0.name) }).count == 1,
               Set(records.map { preparation($0.name) }).count == 1,
+              EstimateRetrievalBridge.compatibleSourceEvidence(records.map(\.name)),
               let envelope = GroundedNutritionEnvelope.enclosing(sources.map(\.nutrition)) else { return nil }
         return GroundedEstimateBasis(
             scopedQuery: scopedQuery, method: .scopedSourceEnvelope, candidates: sources,
@@ -134,7 +135,10 @@ enum EstimateGroundedMealEngine {
 
     static func evaluate(_ input: [EstimateGroundedComponent],
                          resolver: GroundedEstimateEngine.Resolver = { ExistingFoodGrounder.resolve($0, amount: $1) },
-                         basisResolver: BasisResolver = { EstimateGroundingPolicy.ausnutBasis(scopedQuery: $0, amount: $1) })
+                         basisResolver: BasisResolver = {
+                             EstimateGroundingPolicy.ausnutBasis(scopedQuery: $0, amount: $1)
+                                 ?? EstimateRetrievalBridge.basis(scopedQuery: $0, amount: $1)
+                         })
         -> EstimateGroundedMealResult {
         let components = input.map { component in
             let exact = GroundedEstimateEngine.evaluate(
