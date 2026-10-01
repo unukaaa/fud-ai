@@ -98,6 +98,7 @@ struct FoodConceptIdentityAssessment: Equatable, Sendable {
 enum AUSNUTPortion: Equatable, Sendable {
     case grams(Double)
     case measure(index: Int, quantity: Double)
+    case millilitres(value: Double, basisIndex: Int)
 }
 
 struct AUSNUTFoodSearchIndex: Sendable {
@@ -389,6 +390,39 @@ struct AUSNUTPresentedMeasure: Identifiable, Equatable {
     var id: Int { index }
     var gramsPerUnit: Double { sourceGrams / sourceQuantity }
     var portion: AUSNUTPortion { .measure(index: index, quantity: 1) }
+}
+
+/// A manual volume is available only when the source measures agree on its
+/// grams-per-mL basis. The recorded measure is conversion evidence, not the
+/// consumer's chosen serving description.
+struct AUSNUTVolumeBasis {
+    let measure: AUSNUTPresentedMeasure
+
+    static func make(for presentation: AUSNUTPortionPresentation) -> Self? {
+        let volumeMeasures = (presentation.primary + presentation.more).filter { measure in
+            guard let volume = measure.sourceVolume else { return false }
+            return volume.isFinite && volume > 0
+        }
+        guard let first = volumeMeasures.first,
+              let firstVolume = first.sourceVolume else { return nil }
+        let gramsPerMillilitre = first.sourceGrams / firstVolume
+        guard gramsPerMillilitre.isFinite, gramsPerMillilitre > 0,
+              volumeMeasures.allSatisfy({ measure in
+                  guard let volume = measure.sourceVolume else { return false }
+                  let ratio = measure.sourceGrams / volume
+                  return ratio.isFinite && abs(ratio - gramsPerMillilitre)
+                      <= max(1, gramsPerMillilitre) * 1e-9
+              }) else { return nil }
+        return Self(measure: first)
+    }
+
+    func portion(millilitres: Double) -> AUSNUTPortion? {
+        guard millilitres.isFinite, millilitres > 0,
+              let volume = measure.sourceVolume else { return nil }
+        let quantity = millilitres / (volume / measure.sourceQuantity)
+        guard quantity.isFinite, quantity > 0 else { return nil }
+        return .millilitres(value: millilitres, basisIndex: measure.index)
+    }
 }
 
 /// Keeps the complete source set while exposing a small, diverse first group.

@@ -148,4 +148,83 @@ struct AUSNUTFoodSelectionTests {
         #expect(resolved.selectedServingQuantity == 37)
         #expect(resolved.nutritionSource == "AUSNUT Australia")
     }
+
+    @Test func sourcedVolumeAllowsCustomMillilitresWithoutInventedConversion() throws {
+        for (foodID, millilitres) in [("19101002", 125.0), ("11802002", 250.0),
+                                      ("29101001", 250.0)] {
+            let food = try #require(AustralianNutritionService.identity(forID: foodID))
+            let presentation = AUSNUTPortionPresentation.make(for: food)
+            let basis = try #require(AUSNUTVolumeBasis.make(for: presentation))
+            let source = food.measures[basis.measure.index]
+            #expect(source.measureID == basis.measure.measureID)
+            let portion = try #require(basis.portion(millilitres: millilitres))
+            let resolved = try #require(AustralianNutritionService.analysis(
+                for: AUSNUTFoodSelection(foodID: foodID), portion: portion
+            ))
+            let expectedGrams = millilitres * source.grams / (source.volume ?? .nan)
+            #expect(abs(resolved.servingSizeGrams - expectedGrams) < 0.001)
+            #expect(resolved.nutritionSource == "AUSNUT Australia")
+            #expect(resolved.selectedServingUnit == "mL")
+            #expect(resolved.selectedServingQuantity == millilitres)
+            #expect(resolved.servingUnitOptions.contains {
+                $0.unit == "mL" && abs($0.gramsPerUnit - source.grams / (source.volume ?? .nan)) < 0.000001
+            })
+            let sameGrams = try #require(AustralianNutritionService.analysis(
+                for: AUSNUTFoodSelection(foodID: foodID), portion: .grams(expectedGrams)
+            ))
+            #expect(resolved.calories == sameGrams.calories)
+            #expect(resolved.protein == sameGrams.protein)
+            #expect(resolved.carbs == sameGrams.carbs)
+            #expect(resolved.fat == sameGrams.fat)
+            #expect(basis.portion(millilitres: 0) == nil)
+        }
+    }
+
+    @Test func duplicateCanLabelsRetainDistinctSourceMeasures() throws {
+        let food = try #require(AustralianNutritionService.identity(forID: "29101001"))
+        let options = AUSNUTPortionPresentation.make(for: food)
+        let all = options.primary + options.more
+        let can330 = try #require(all.first { $0.measureID == 40298 })
+        let can375 = try #require(all.first { $0.measureID == 40299 })
+        #expect(can330.index != can375.index)
+        #expect(can330.title.contains("330 mL"))
+        #expect(can375.title.contains("375 mL"))
+        #expect(can330.sourceVolume == 330)
+        #expect(can375.sourceVolume == 375)
+        #expect(can330.sourceGrams == food.measures[can330.index].grams)
+        #expect(can375.sourceGrams == food.measures[can375.index].grams)
+        for option in [can330, can375] {
+            let resolved = try #require(AustralianNutritionService.analysis(
+                for: AUSNUTFoodSelection(foodID: food.id), portion: option.portion
+            ))
+            #expect(resolved.selectedServingUnit == option.title)
+            #expect(resolved.selectedServingQuantity == 1)
+            #expect(resolved.servingSizeGrams == option.sourceGrams)
+            #expect(resolved.nutritionSource == "AUSNUT Australia")
+        }
+    }
+
+    @Test func customMillilitresFailClosedWithoutOneConsistentSourceBasis() throws {
+        let chocolate = try #require(AustralianNutritionService.identity(forID: "28101004"))
+        #expect(AUSNUTVolumeBasis.make(for: AUSNUTPortionPresentation.make(for: chocolate)) == nil)
+        let noMeasures = try #require(AustralianNutritionService.identity(forID: "29101005"))
+        #expect(AUSNUTVolumeBasis.make(for: AUSNUTPortionPresentation.make(for: noMeasures)) == nil)
+
+        let conflicting = AUSNUTFoodIdentity(id: "fixture", name: "Synthetic liquid", measures: [
+            AUSNUTFoodMeasure(name: "cup", quantity: 1, grams: 250, measureID: 1,
+                              descriptors: ["cup", nil, nil, nil], volume: 250),
+            AUSNUTFoodMeasure(name: "bottle", quantity: 1, grams: 300, measureID: 2,
+                              descriptors: ["bottle", nil, nil, nil], volume: 250)
+        ])
+        #expect(AUSNUTVolumeBasis.make(for: AUSNUTPortionPresentation.make(for: conflicting)) == nil)
+        #expect(AustralianNutritionService.analysis(
+            for: AUSNUTFoodSelection(foodID: noMeasures.id),
+            portion: .millilitres(value: 250, basisIndex: 0)
+        ) == nil)
+        let grams = try #require(AustralianNutritionService.analysis(
+            for: AUSNUTFoodSelection(foodID: noMeasures.id), portion: .grams(250)
+        ))
+        #expect(grams.selectedServingUnit == "g")
+        #expect(grams.selectedServingQuantity == 250)
+    }
 }

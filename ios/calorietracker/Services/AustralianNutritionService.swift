@@ -70,7 +70,15 @@ enum AustralianNutritionService {
 
     /// Resolves only the selected record and an explicit amount. No text or AI fallback.
     static func analysis(for selection: AUSNUTFoodSelection, portion: AUSNUTPortion) -> GeminiService.FoodAnalysis? {
-        guard let food = foodsByID[selection.foodID],
+        guard let food = foodsByID[selection.foodID] else { return nil }
+        var customVolumeBasis: AUSNUTVolumeBasis?
+        if case .millilitres(_, let basisIndex) = portion {
+            guard let basis = AUSNUTVolumeBasis.make(
+                for: AUSNUTPortionPresentation.make(for: identity(for: food))
+            ), basis.measure.index == basisIndex else { return nil }
+            customVolumeBasis = basis
+        }
+        guard
               let amount = amount(for: portion, measures: food.measures ?? []),
               (food.kcal * amount.grams / 100).isFinite,
               food.kcal * amount.grams / 100 < Double(Int.max)
@@ -82,16 +90,33 @@ enum AustralianNutritionService {
                 && $0.quantity.isFinite && $0.quantity > 0
         }
         let nameCounts = Dictionary(grouping: validMeasures, by: { $0.name.lowercased() }).mapValues(\.count)
-        let unitOptions = validMeasures.filter { nameCounts[$0.name.lowercased()] == 1 }.map {
-            ServingUnitOption(unit: $0.name, gramsPerUnit: $0.grams / $0.quantity)
+        let presented = AUSNUTPortionPresentation.make(for: identity(for: food))
+        let titlesByIndex = Dictionary(uniqueKeysWithValues: (presented.primary + presented.more).map {
+            ($0.index, $0.title)
+        })
+        var unitOptions = (food.measures ?? []).enumerated().compactMap { index, measure -> ServingUnitOption? in
+            guard !measure.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  measure.grams.isFinite, measure.grams > 0,
+                  measure.quantity.isFinite, measure.quantity > 0 else { return nil }
+            let unit = nameCounts[measure.name.lowercased()] == 1
+                ? measure.name : (titlesByIndex[index] ?? measure.name)
+            return ServingUnitOption(unit: unit, gramsPerUnit: measure.grams / measure.quantity)
+        }
+        if let basis = customVolumeBasis, let volume = basis.measure.sourceVolume {
+            unitOptions.append(ServingUnitOption(
+                unit: "mL", gramsPerUnit: basis.measure.sourceGrams / volume
+            ))
         }
         let selectedUnit: String
         let selectedQuantity: Double
-        if let measureIndex = amount.measureIndex,
+        if case .millilitres(let millilitres, _) = portion {
+            selectedUnit = "mL"
+            selectedQuantity = millilitres
+        } else if let measureIndex = amount.measureIndex,
            let selected = (food.measures ?? []).indices.contains(measureIndex)
                 ? food.measures?[measureIndex] : nil,
-           nameCounts[selected.name.lowercased()] == 1 {
-            selectedUnit = selected.name
+           let title = titlesByIndex[measureIndex] {
+            selectedUnit = nameCounts[selected.name.lowercased()] == 1 ? selected.name : title
             selectedQuantity = amount.quantity
         } else {
             selectedUnit = "g"
@@ -124,6 +149,14 @@ enum AustralianNutritionService {
             let grams = quantity * measure.grams / measure.quantity
             guard grams.isFinite, grams > 0 else { return nil }
             return (grams, quantity, index)
+        case .millilitres(let value, let basisIndex):
+            guard measures.indices.contains(basisIndex), value.isFinite, value > 0,
+                  let volume = measures[basisIndex].volume,
+                  volume.isFinite, volume > 0,
+                  measures[basisIndex].grams.isFinite, measures[basisIndex].grams > 0 else { return nil }
+            let grams = value * measures[basisIndex].grams / volume
+            guard grams.isFinite, grams > 0 else { return nil }
+            return (grams, value, basisIndex)
         }
     }
 

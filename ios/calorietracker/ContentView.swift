@@ -2675,11 +2675,14 @@ private struct AUSNUTPortionPrompt: Identifiable {
     let selection: AUSNUTFoodSelection
     let identity: AUSNUTFoodIdentity
     let presentation: AUSNUTPortionPresentation
+    let volumeBasis: AUSNUTVolumeBasis?
 
     init(selection: AUSNUTFoodSelection, identity: AUSNUTFoodIdentity) {
         self.selection = selection
         self.identity = identity
-        presentation = AUSNUTPortionPresentation.make(for: identity)
+        let prepared = AUSNUTPortionPresentation.make(for: identity)
+        presentation = prepared
+        volumeBasis = AUSNUTVolumeBasis.make(for: prepared)
     }
 }
 
@@ -2689,15 +2692,23 @@ private struct AUSNUTPortionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedMeasure: AUSNUTPresentedMeasure?
     @State private var usingGrams = false
+    @State private var usingMillilitres = false
     @State private var showingMore = false
     @State private var gramsText = ""
+    @State private var millilitresText = ""
     @FocusState private var gramsFocused: Bool
+    @FocusState private var millilitresFocused: Bool
 
     private var selectedPortion: AUSNUTPortion? {
         if usingGrams {
             guard let grams = Double(gramsText.replacingOccurrences(of: ",", with: ".")),
                   grams.isFinite, grams > 0 else { return nil }
             return .grams(grams)
+        }
+        if usingMillilitres {
+            guard let millilitres = Double(millilitresText.replacingOccurrences(of: ",", with: "."))
+            else { return nil }
+            return prompt.volumeBasis?.portion(millilitres: millilitres)
         }
         return selectedMeasure?.portion
     }
@@ -2714,25 +2725,8 @@ private struct AUSNUTPortionView: View {
                         .foregroundStyle(.secondary)
                     Text("How much did you have?")
                         .font(.headline)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Grams")
-                            .font(.subheadline.weight(.semibold))
-                        TextField("Enter grams", text: $gramsText)
-                            .keyboardType(.decimalPad)
-                            .focused($gramsFocused)
-                            .textFieldStyle(.roundedBorder)
-                            .accessibilityLabel("Amount in grams")
-                            .accessibilityIdentifier("ausnutPortion.grams")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .onChange(of: gramsFocused) { _, focused in
-                        if focused { usingGrams = true; selectedMeasure = nil }
-                    }
-                    .onChange(of: gramsText) { _, newValue in
-                        if !newValue.isEmpty { usingGrams = true; selectedMeasure = nil }
-                    }
                     if !prompt.presentation.primary.isEmpty {
-                        Text("Common portions")
+                        Text("Recommended portions")
                             .font(.subheadline.weight(.semibold))
                         ForEach(prompt.presentation.primary) { choice in
                             AUSNUTMeasureButton(
@@ -2742,7 +2736,11 @@ private struct AUSNUTPortionView: View {
                             ) {
                                 selectedMeasure = choice
                                 usingGrams = false
+                                usingMillilitres = false
+                                gramsText = ""
+                                millilitresText = ""
                                 gramsFocused = false
+                                millilitresFocused = false
                             }
                         }
                     }
@@ -2757,7 +2755,11 @@ private struct AUSNUTPortionView: View {
                                     ) {
                                         selectedMeasure = choice
                                         usingGrams = false
+                                        usingMillilitres = false
+                                        gramsText = ""
+                                        millilitresText = ""
                                         gramsFocused = false
+                                        millilitresFocused = false
                                     }
                                 }
                             }
@@ -2768,6 +2770,55 @@ private struct AUSNUTPortionView: View {
                                 .frame(minHeight: 44)
                         }
                         .accessibilityIdentifier("ausnutPortion.more")
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Custom amount")
+                            .font(.subheadline.weight(.semibold))
+                        TextField("Enter grams", text: $gramsText)
+                            .keyboardType(.decimalPad)
+                            .focused($gramsFocused)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel("Amount in grams")
+                            .accessibilityIdentifier("ausnutPortion.grams")
+                        if prompt.volumeBasis != nil {
+                            TextField("Enter millilitres", text: $millilitresText)
+                                .keyboardType(.decimalPad)
+                                .focused($millilitresFocused)
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Amount in millilitres")
+                                .accessibilityIdentifier("ausnutPortion.millilitres")
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .onChange(of: gramsFocused) { _, focused in
+                        if focused {
+                            usingGrams = true
+                            usingMillilitres = false
+                            millilitresText = ""
+                            selectedMeasure = nil
+                        }
+                    }
+                    .onChange(of: gramsText) { _, newValue in
+                        if !newValue.isEmpty {
+                            usingGrams = true
+                            usingMillilitres = false
+                            selectedMeasure = nil
+                        }
+                    }
+                    .onChange(of: millilitresFocused) { _, focused in
+                        if focused {
+                            usingMillilitres = true
+                            usingGrams = false
+                            gramsText = ""
+                            selectedMeasure = nil
+                        }
+                    }
+                    .onChange(of: millilitresText) { _, newValue in
+                        if !newValue.isEmpty {
+                            usingMillilitres = true
+                            usingGrams = false
+                            selectedMeasure = nil
+                        }
                     }
                 }
                 .padding(22)
@@ -2807,9 +2858,15 @@ private struct AUSNUTMeasureButton: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(FoodConsumerLabels.portion(choice.title))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("\(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) g")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let volume = choice.sourceVolume, volume > 0 {
+                        Text("\(volume / choice.sourceQuantity, format: .number.precision(.fractionLength(0...6))) mL · \(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) g")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(choice.gramsPerUnit, format: .number.precision(.fractionLength(0...6))) g")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
