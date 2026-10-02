@@ -101,7 +101,8 @@ enum GroundedPointEstimatePolicy {
             return EstimateGroundedComponent(exactInput: GroundedComponentInput(description: c.name,
                 sourceID: nil, amount: amount, estimatedNutrition: nil, assumptions: c.assumptions),
                 scopedEstimateQuery: c.preparation == .unknown ? nil : c.name +
-                    (c.preparation == .other ? "" : " " + c.preparation.rawValue))
+                    (c.preparation == .other ? "" : " " + c.preparation.rawValue),
+                partitionContext: EstimateCandidateContext.component(c, in: validated.context.description))
         }
     }
 

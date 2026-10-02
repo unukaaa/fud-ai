@@ -107,6 +107,14 @@ enum EstimateGroundingPolicy {
 struct EstimateGroundedComponent: Sendable {
     let exactInput: GroundedComponentInput
     let scopedEstimateQuery: String?
+    let partitionContext: EstimateCandidateContext?
+
+    init(exactInput: GroundedComponentInput, scopedEstimateQuery: String?,
+         partitionContext: EstimateCandidateContext? = nil) {
+        self.exactInput = exactInput
+        self.scopedEstimateQuery = scopedEstimateQuery
+        self.partitionContext = partitionContext
+    }
 }
 
 struct EstimateGroundedComponentResult: Sendable {
@@ -149,7 +157,28 @@ enum EstimateGroundedMealEngine {
             // Never replace an explicit but invalid source ID with a convenient estimate.
             if exact.evidence == .unresolved, component.exactInput.sourceID == nil,
                let query = component.scopedEstimateQuery, let amount = component.exactInput.amount {
-                basis = basisResolver(query, amount)
+                if let context = component.partitionContext {
+                    let partitions = AustralianNutritionService.searchableIdentities.map {
+                        EstimateCandidatePartition.assess(context, identities: $0)
+                    }
+                    // Preserve independently established narrower legacy scope
+                    // only when ALL its IDs satisfy ONE eligible V2 partition.
+                    // This is not a bypass of role, recipe or full preparation.
+                    if let legacy = basisResolver(query, amount), let partitions {
+                        let ids = Set(legacy.candidateSourceIDs.compactMap { id -> String? in
+                            if case .ausnut(let value) = id { return value }; return nil
+                        })
+                        if ids.count == legacy.candidates.count,
+                           partitions.partitions.contains(where: {
+                               $0.eligible && ids.isSubset(of: Set($0.candidates.map(\.sourceID)))
+                           }) { basis = legacy }
+                    }
+                    if basis == nil {
+                        basis = EstimateCandidatePartition.basis(context: context, amount: amount, resolver: resolver)
+                    }
+                } else {
+                    basis = basisResolver(query, amount)
+                }
             }
             return EstimateGroundedComponentResult(exactResult: exact, estimateBasis: basis)
         }
