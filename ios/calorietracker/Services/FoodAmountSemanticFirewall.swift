@@ -121,7 +121,7 @@ enum FoodAmountSemanticFirewall {
                 if component != nil { invalid.append("meal_total_assigned_to_component:\(id)") }
             } else if source.scope == .unknownScope {
                 clarify.append("unknown_quantity_scope:\(id)")
-            } else if let target = source.componentName, let component, matches(target, component) {
+            } else if let target = source.componentName, let component, matchesQuantityTarget(target, component) {
                 // Exact user amount remains the calculation basis, not the estimate.
             } else {
                 invalid.append("wrong_quantity_target:\(id)")
@@ -233,6 +233,19 @@ enum FoodAmountSemanticFirewall {
         }
         let wanted = tokens(target)
         return !wanted.isEmpty && wanted.isSubset(of: tokens(component))
+    }
+
+    private static func matchesQuantityTarget(_ target: String, _ component: String) -> Bool {
+        guard matches(target, component) else { return false }
+        // A quantity bound to one noun phrase cannot acquire a larger composite.
+        // Preserve an independently bound compound food (e.g. macaroni and cheese).
+        func connectors(_ text: String) -> Set<String> {
+            Set(text.lowercased().replacingOccurrences(of: "&", with: " and ")
+                .replacingOccurrences(of: "+", with: " plus ")
+                .split(whereSeparator: { !$0.isLetter }).map(String.init))
+                .intersection(["with", "and", "plus", "alongside"])
+        }
+        return connectors(component).subtracting(connectors(target)).isEmpty
     }
 }
 
