@@ -48,6 +48,31 @@ struct FoodQuantityBindingContractTests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let q = try #require((json["quantities"] as? [[String: Any]])?.first)
         #expect(q["scope"] as? String == "componentAmount" && q["componentName"] as? String == "rice")
+        #expect(q["provenance"] as? String == "userSupplied")
+        #expect(q["evidenceID"] as? String == "q" && q["value"] as? Double == 180)
+    }
+    @Test func multipleBindingsMustEachRemainOnTheirOwnComponent() {
+        let rice = ExplicitFoodQuantity(id: "rice-q", originalText: "180 g", value: 180, unit: .grams,
+            scope: .componentAmount, componentName: "rice")
+        let eggs = ExplicitFoodQuantity(id: "egg-q", originalText: "2 eggs", value: 2, unit: .count,
+            scope: .servingCount, componentName: "eggs")
+        let proposal = FoodMealProposal(components: [
+            FoodComponentProposal(id: "rice", name: "cooked rice", preparation: .cooked, preparationText: nil,
+                userAmount: FoodQuantityProposal(evidenceID: "rice-q", originalText: "180 g", value: 180,
+                    unit: .grams, scope: .componentAmount), estimatedAmount: nil, assumptions: []),
+            FoodComponentProposal(id: "eggs", name: "eggs", preparation: .cooked, preparationText: nil,
+                userAmount: FoodQuantityProposal(evidenceID: "egg-q", originalText: "2 eggs", value: 2,
+                    unit: .count, scope: .servingCount), estimatedAmount: nil, assumptions: [])
+        ], mealTotal: nil, question: nil, assumptions: [])
+        let context = FoodSemanticContext(description: "180 g rice and 2 eggs", userQuantities: [rice, eggs], preparationConstraints: [])
+        #expect(FoodAmountSemanticFirewall.assess(proposal, context: context).accepted != nil)
+        let swapped = FoodMealProposal(components: [
+            FoodComponentProposal(id: "rice", name: "rice", preparation: .cooked, preparationText: nil,
+                userAmount: proposal.components[1].userAmount, estimatedAmount: nil, assumptions: []),
+            FoodComponentProposal(id: "eggs", name: "eggs", preparation: .cooked, preparationText: nil,
+                userAmount: proposal.components[0].userAmount, estimatedAmount: nil, assumptions: [])
+        ], mealTotal: nil, question: nil, assumptions: [])
+        #expect(FoodAmountSemanticFirewall.assess(swapped, context: context).accepted == nil)
     }
     @Test func invalidQuantityCannotReachGroundingOrFallbackSeam() {
         let q = ExplicitFoodQuantity(id: "q", originalText: "2 eggs", value: 2, unit: .count, scope: .servingCount, componentName: "eggs")

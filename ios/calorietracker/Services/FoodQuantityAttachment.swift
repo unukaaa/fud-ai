@@ -1,5 +1,9 @@
 import Foundation
 
+enum FoodQuantityEvidenceProvenance: String, Codable, Sendable {
+    case userSupplied
+}
+
 /// Provider-neutral projection of independently checked caller evidence. This is
 /// not a language extractor: unknown scope/noun attachment must remain unknown.
 struct FoodQuantityAttachment: Codable, Equatable, Sendable {
@@ -9,6 +13,7 @@ struct FoodQuantityAttachment: Codable, Equatable, Sendable {
     let unit: FoodSemanticUnit
     let scope: FoodAmountScope
     let componentName: String?
+    let provenance: FoodQuantityEvidenceProvenance
 
     init(_ evidence: ExplicitFoodQuantity) {
         evidenceID = evidence.id
@@ -17,6 +22,7 @@ struct FoodQuantityAttachment: Codable, Equatable, Sendable {
         unit = evidence.unit
         scope = evidence.scope
         componentName = evidence.componentName
+        provenance = .userSupplied
     }
 }
 
@@ -26,7 +32,7 @@ struct FoodQuantityInterpretationContract: Codable, Sendable {
     let version: String
     let description: String
     let quantities: [FoodQuantityAttachment]
-    static let instructions = "Echo each quantity once with its original evidenceID, text, value, unit and scope. Component amounts/counts bind only to the checked componentName, not a containing meal. Meal-total quantities belong only to mealTotal. Natural portions and package fractions retain their scopes. Keep estimated edible grams separate. Unknown bindings remain unresolved; never reinterpret checked evidence."
+    static let instructions = "The quantities are independently checked USER_SUPPLIED constraints, not suggestions. Echo each binding exactly once using its evidenceID, originalText, value, unit and scope; place it on the checked componentName or mealTotal. Component amounts/counts must not move to a containing meal. Natural portions and package fractions retain their scopes. Estimate missing amounts separately. Never replace or reinterpret a checked binding."
 
     init(context: FoodSemanticContext) {
         version = "checked-quantity-binding-v1"
