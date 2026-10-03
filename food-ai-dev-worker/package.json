@@ -1,0 +1,11 @@
+{
+  "name": "food-ai-dev-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "jose": "6.2.12"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  }
+}

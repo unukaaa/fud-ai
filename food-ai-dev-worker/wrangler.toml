@@ -1,0 +1,19 @@
+name = "food-ai-dev-api-20261002"
+main = "src/index.js"
+compatibility_date = "2026-10-02"
+workers_dev = true
+preview_urls = false
+
+[vars]
+ACTIVE_PROVIDER = "openai-luna"
+
+[secrets]
+required = ["OPENAI_API_KEY", "DEV_OWNER_EMAIL", "ACCESS_POLICY_AUD", "ACCESS_BUILDER_CLIENT_ID", "ACCESS_TEAM_DOMAIN"]
+
+[[ratelimits]]
+name = "DEV_REQUEST_RATE_LIMITER"
+namespace_id = "824016371"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60
