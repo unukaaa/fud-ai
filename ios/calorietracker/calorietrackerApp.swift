@@ -135,6 +135,9 @@ struct calorietrackerApp: App {
                 refreshWidgetSnapshot()
             }
             .task {
+#if DEBUG && targetEnvironment(simulator)
+                await FoodAIDevWorkerProbe.runIfRequested()
+#endif
                 await cloudBackupService.runSmokeTestIfRequested()
                 await weeklyChallengeStore.retryPendingDeletionIfNeeded()
             }
